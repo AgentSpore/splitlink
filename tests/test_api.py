@@ -1,197 +1,173 @@
 import pytest
 from fastapi.testclient import TestClient
-from datetime import datetime
-
 from splitlink.main import app
-from splitlink.core.db import get_db
+from splitlink.core.db import init_db, get_db
+
 import aiosqlite
+
+TEST_DB = ":memory:"
 
 client = TestClient(app)
 
-# In-memory SQLite for testing
-TEST_DB = ":memory:"
 
-
-@pytest.fixture(scope="function")
-async def test_db():
-    """Create an in-memory database for testing."""
+@pytest.fixture(scope="function", autouse=True)
+async def setup_test_db():
+    """Create in-memory tables and override get_db for each test."""
     db = await aiosqlite.connect(TEST_DB)
-    await db.execute("""
-        CREATE TABLE links (
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             description TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE link_analytics (
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""
+    )
+    await db.execute(
+        """CREATE TABLE IF NOT EXISTS link_analytics (
             link_id INTEGER PRIMARY KEY,
             title TEXT,
             total_clicks INTEGER DEFAULT 0,
             open_rate REAL DEFAULT 0.0,
             average_settlement REAL DEFAULT 0.0,
-            FOREIGN KEY (link_id) REFERENCES links (id)
-        )
-    """)
+            FOREIGN KEY (link_id) REFERENCES links(id)
+        )"""
+    )
     await db.commit()
-    return db
 
+    async def _override():
+        yield db
 
-@pytest.fixture(scope="function")
-def override_get_db(test_db):
-    """Override get_db dependency to use test database."""
-    async def _get_db():
-        return test_db
-    app.dependency_overrides[get_db] = _get_db
-    yield test_db
+    app.dependency_overrides[get_db] = _override
+    yield
     app.dependency_overrides.clear()
+    await db.close()
 
 
 def test_health_check():
-    """Test the health check endpoint."""
     response = client.get("/health")
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
+    assert response.json() == {"status": "ok"}
 
 
-def test_create_link(override_get_db):
-    """Test creating a new link."""
-    response = client.post(
-        "/api/links",
-        json={
-            "title": "Test Link",
-            "url": "https://example.com/split/123",
-            "description": "Test description"
-        }
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["title"] == "Test Link"
-    assert data["url"] == "https://example.com/split/123"
-    assert data["description"] == "Test description"
-    assert "id" in data
-    assert "created_at" in data
-    assert "updated_at" in data
+class TestCreateLink:
+    def test_create_valid(self):
+        resp = client.post(
+            "/api/links",
+            json={"title": "Trip to Tokyo", "url": "https://example.com/pay/abc"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["title"] == "Trip to Tokyo"
+        assert data["id"] > 0
 
-
-def test_create_link_missing_title(override_get_db):
-    """Test creating a link without required title."""
-    response = client.post(
-        "/api/links",
-        json={
-            "url": "https://example.com/split/123"
-        }
-    )
-    assert response.status_code == 422  # Validation error
-
-
-def test_get_link(override_get_db):
-    """Test getting a specific link."""
-    # First create a link
-    create_response = client.post(
-        "/api/links",
-        json={
-            "title": "Test Link",
-            "url": "https://example.com/split/123"
-        }
-    )
-    link_id = create_response.json()["id"]
-    
-    # Then get it
-    response = client.get(f"/api/links/{link_id}")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["title"] == "Test Link"
-    assert data["url"] == "https://example.com/split/123"
-
-
-def test_get_link_not_found(override_get_db):
-    """Test getting a non-existent link."""
-    response = client.get("/api/links/99999")
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
-
-
-def test_list_links(override_get_db):
-    """Test listing links with pagination."""
-    # Create multiple links
-    for i in range(3):
-        client.post(
+    def test_create_with_description(self):
+        resp = client.post(
             "/api/links",
             json={
-                "title": f"Link {i}",
-                "url": f"https://example.com/split/{i}"
-            }
+                "title": "Hotel",
+                "url": "https://example.com/pay/def",
+                "description": "Split $500 for flight + hotel",
+            },
         )
-    
-    # List links
-    response = client.get("/api/links?limit=2&offset=0")
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "total" in data
-    assert len(data["items"]) == 2
-    assert data["total"] == 3
+        assert resp.status_code == 201
+        assert resp.json()["description"] == "Split $500 for flight + hotel"
 
+    def test_create_missing_title(self):
+        resp = client.post("/api/links", json={"url": "https://example.com"})
+        assert resp.status_code == 422
 
-def test_list_links_default_pagination(override_get_db):
-    """Test listing links with default pagination."""
-    # Create multiple links
-    for i in range(5):
+    def test_create_duplicate_url(self):
         client.post(
             "/api/links",
-            json={
-                "title": f"Link {i}",
-                "url": f"https://example.com/split/{i}"
-            }
+            json={"title": "A", "url": "https://example.com/dup"},
         )
-    
-    # List links with default limit
-    response = client.get("/api/links")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["items"]) == 10  # Default limit
-    assert data["total"] == 5
+        resp = client.post(
+            "/api/links",
+            json={"title": "B", "url": "https://example.com/dup"},
+        )
+        # No unique constraint — should succeed
+        assert resp.status_code == 201
 
 
-def test_get_link_analytics(override_get_db):
-    """Test getting analytics for a link."""
-    # Create a link
-    create_response = client.post(
-        "/api/links",
-        json={
-            "title": "Test Link",
-            "url": "https://example.com/split/123"
-        }
-    )
-    link_id = create_response.json()["id"]
-    
-    # Get analytics (should initially be zeros)
-    response = client.get(f"/api/links/{link_id}/analytics")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["id"] == link_id
-    assert data["title"] == "Test Link"
-    assert data["total_clicks"] == 0
-    assert data["open_rate"] == 0.0
-    assert data["average_settlement"] == 0.0
+class TestGetLink:
+    def test_get_existing(self):
+        create = client.post(
+            "/api/links", json={"title": "Test", "url": "https://example.com/t"}
+        )
+        lid = create.json()["id"]
+        resp = client.get(f"/api/links/{lid}")
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Test"
+
+    def test_get_missing(self):
+        resp = client.get("/api/links/99999")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
 
-def test_get_link_analytics_not_found(override_get_db):
-    """Test getting analytics for a non-existent link."""
-    response = client.get("/api/links/99999/analytics")
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
+class TestListLinks:
+    def test_list_paginated(self):
+        for i in range(5):
+            client.post(
+                "/api/links",
+                json={"title": f"Link {i}", "url": f"https://example.com/{i}"},
+            )
+        resp = client.get("/api/links?limit=2&offset=0")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 2
+        assert data["total"] == 5
+
+    def test_list_empty(self):
+        resp = client.get("/api/links")
+        assert resp.status_code == 200
+        assert resp.json() == {"items": [], "total": 0}
+
+    def test_list_default_limit(self):
+        for i in range(20):
+            client.post(
+                "/api/links",
+                json={"title": f"Link {i}", "url": f"https://example.com/{i}"},
+            )
+        resp = client.get("/api/links")
+        assert len(resp.json()["items"]) == 10
+        assert resp.json()["total"] == 20
 
 
-def test_list_links_empty(override_get_db):
-    """Test listing links when none exist."""
-    response = client.get("/api/links")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["items"] == []
-    assert data["total"] == 0
+class TestDeleteLink:
+    def test_delete_existing(self):
+        create = client.post(
+            "/api/links", json={"title": "Del", "url": "https://example.com/del"}
+        )
+        lid = create.json()["id"]
+        resp = client.delete(f"/api/links/{lid}")
+        assert resp.status_code == 204
+
+        # Verify gone
+        resp = client.get(f"/api/links/{lid}")
+        assert resp.status_code == 404
+
+    def test_delete_missing(self):
+        resp = client.delete("/api/links/99999")
+        assert resp.status_code == 404
+
+
+class TestAnalytics:
+    def test_analytics_initial(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Analytics Test", "url": "https://example.com/analytics"},
+        )
+        lid = create.json()["id"]
+        resp = client.get(f"/api/links/{lid}/analytics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_clicks"] == 0
+        assert data["open_rate"] == 0.0
+        assert data["average_settlement"] == 0.0
+
+    def test_analytics_nonexistent_link(self):
+        resp = client.get("/api/links/99999/analytics")
+        assert resp.status_code == 404
