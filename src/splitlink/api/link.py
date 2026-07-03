@@ -42,9 +42,10 @@ async def create_link(link: LinkCreate):
 async def list_links(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None, description="Search filter for title, url, or description"),
 ):
-    """List all links with pagination and analytics."""
-    result = await link_service.list_links(limit=limit, offset=offset)
+    """List all links with pagination, analytics, and optional search."""
+    result = await link_service.list_links(limit=limit, offset=offset, search=search)
     items = [
         LinkWithAnalyticsResponse(
             id=item["id"],

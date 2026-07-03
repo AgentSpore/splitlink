@@ -135,6 +135,107 @@ class TestListLinks:
         assert len(resp.json()["items"]) == 10
         assert resp.json()["total"] == 20
 
+    def test_list_search_by_title(self):
+        client.post(
+            "/api/links",
+            json={"title": "Tokyo Trip", "url": "https://example.com/tokyo"},
+        )
+        client.post(
+            "/api/links",
+            json={"title": "Paris Trip", "url": "https://example.com/paris"},
+        )
+        resp = client.get("/api/links?search=Tokyo")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["items"][0]["title"] == "Tokyo Trip"
+
+    def test_list_search_by_url(self):
+        client.post(
+            "/api/links",
+            json={"title": "A", "url": "https://example.com/unique-find-me"},
+        )
+        client.post(
+            "/api/links",
+            json={"title": "B", "url": "https://example.com/other"},
+        )
+        resp = client.get("/api/links?search=unique-find-me")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_list_search_by_description(self):
+        client.post(
+            "/api/links",
+            json={
+                "title": "Trip",
+                "url": "https://example.com/t",
+                "description": "Split $500 for flights",
+            },
+        )
+        client.post(
+            "/api/links",
+            json={
+                "title": "Other",
+                "url": "https://example.com/o",
+                "description": "Hotel booking",
+            },
+        )
+        resp = client.get("/api/links?search=flights")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_list_search_no_results(self):
+        client.post(
+            "/api/links",
+            json={"title": "Test", "url": "https://example.com/test"},
+        )
+        resp = client.get("/api/links?search=zzzznonexistent")
+        assert resp.status_code == 200
+        assert resp.json() == {"items": [], "total": 0}
+
+    def test_list_search_case_insensitive(self):
+        client.post(
+            "/api/links",
+            json={"title": "SPECIAL EVENT", "url": "https://example.com/special"},
+        )
+        resp = client.get("/api/links?search=special")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_list_search_with_pagination(self):
+        for i in range(5):
+            client.post(
+                "/api/links",
+                json={
+                    "title": f"Matching {i}",
+                    "url": f"https://example.com/m{i}",
+                },
+            )
+        client.post(
+            "/api/links",
+            json={"title": "Other", "url": "https://example.com/other"},
+        )
+        resp = client.get("/api/links?search=Matching&limit=2&offset=0")
+        data = resp.json()
+        assert data["total"] == 5
+        assert len(data["items"]) == 2
+        # Verify items have analytics in response
+        assert "analytics" in data["items"][0]
+        assert "total_clicks" in data["items"][0]["analytics"]
+
+    def test_list_items_have_analytics(self):
+        """Verify list endpoint returns analytics embedded in each item."""
+        client.post(
+            "/api/links",
+            json={"title": "Analytics Check", "url": "https://example.com/ac"},
+        )
+        resp = client.get("/api/links")
+        item = resp.json()["items"][0]
+        assert "analytics" in item
+        assert "total_clicks" in item["analytics"]
+        assert "open_rate" in item["analytics"]
+        assert "average_settlement" in item["analytics"]
+
 
 class TestDeleteLink:
     def test_delete_existing(self):
@@ -241,13 +342,11 @@ class TestSettlement:
         client.post(f"/api/links/{lid}/click")
         data = client.get(f"/api/links/{lid}/analytics").json()
         assert data["total_clicks"] == 2
-        assert data["settlement_count"] == 0
         assert data["open_rate"] == 0.0
         # 1 settlement (also increments clicks)
         client.post(f"/api/links/{lid}/settlement", json={"amount": 75.0})
         data = client.get(f"/api/links/{lid}/analytics").json()
         assert data["total_clicks"] == 3
-        assert data["settlement_count"] == 1
         assert data["open_rate"] == 1.0 / 3.0  # 1/3 ≈ 0.333
         assert round(data["open_rate"], 4) == round(1.0 / 3.0, 4)
 

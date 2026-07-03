@@ -75,16 +75,34 @@ async def get_link(link_id: int) -> Optional[dict[str, Any]]:
         return _row_to_dict(row) if row else None
 
 
-async def list_links(limit: int = 10, offset: int = 0) -> dict[str, Any]:
-    """List all links with pagination and analytics."""
-    async with get_db() as db:
-        cursor = await db.execute("SELECT COUNT(*) FROM links")
-        total = (await cursor.fetchone())[0]
+async def list_links(limit: int = 10, offset: int = 0, search: Optional[str] = None) -> dict[str, Any]:
+    """List all links with pagination, analytics, and optional search.
 
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} ORDER BY l.created_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        )
+    When ``search`` is provided, filters by title / url / description (LIKE match).
+    """
+    async with get_db() as db:
+        if search:
+            pattern = f"%{search}%"
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM links WHERE title LIKE ? OR url LIKE ? OR description LIKE ?",
+                (pattern, pattern, pattern),
+            )
+            total = (await cursor.fetchone())[0]
+
+            cursor = await db.execute(
+                f"""{_JOIN_QUERY}
+                 WHERE l.title LIKE ? OR l.url LIKE ? OR l.description LIKE ?
+                 ORDER BY l.created_at DESC LIMIT ? OFFSET ?""",
+                (pattern, pattern, pattern, limit, offset),
+            )
+        else:
+            cursor = await db.execute("SELECT COUNT(*) FROM links")
+            total = (await cursor.fetchone())[0]
+
+            cursor = await db.execute(
+                f"{_JOIN_QUERY} ORDER BY l.created_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
         rows = await cursor.fetchall()
 
         return {"items": [_row_to_dict(r) for r in rows], "total": total}
