@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SplitLink — Payment Split Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              200: '#bbf7d0',
+              300: '#86efac',
+              400: '#4ade80',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+              800: '#166534',
+              900: '#14532d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .skeleton { background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 0.375rem; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .verdict-banner { transition: all 0.3s ease; }
+    .card-hover { transition: transform 0.15s, box-shadow 0.15s; }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
+    .stat-card { border: 1px solid #e5e7eb; border-radius: 0.75rem; padding: 1rem; background: white; }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: #9ca3af; }
+    .empty-state svg { width: 64px; height: 64px; margin: 0 auto 1rem; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <!-- Nav -->
+  <header class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <svg class="w-7 h-7 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+        </svg>
+        <h1 class="text-xl font-bold text-gray-900">SplitLink</h1>
+      </div>
+      <span class="text-sm text-gray-400">Payment Split Tracker</span>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    <!-- Verdict Banner -->
+    <div id="verdict-banner" class="verdict-banner mb-6 hidden"></div>
+
+    <!-- Create Link Card -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">Create Split Link</h2>
+      <form id="create-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label for="title" class="block text-sm font-medium text-gray-600 mb-1">Title *</label>
+          <input type="text" id="title" name="title" required placeholder="e.g. Trip to Tokyo" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+        </div>
+        <div>
+          <label for="url" class="block text-sm font-medium text-gray-600 mb-1">URL *</label>
+          <input type="url" id="url" name="url" required placeholder="https://example.com/pay/abc" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+        </div>
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-600 mb-1">Description</label>
+          <input type="text" id="description" name="description" placeholder="Split $500 for flight + hotel" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+        </div>
+        <div class="sm:col-span-3 flex justify-end">
+          <button type="submit" id="create-btn" class="bg-brand-600 hover:bg-brand-700 text-white font-medium py-2 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed text-sm">
+            Create Link
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Stats Overview -->
+    <div id="stats-overview" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6"></div>
+
+    <!-- Links List -->
+    <div id="links-section">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-800">Split Links</h2>
+        <div class="flex items-center gap-2">
+          <span id="total-count" class="text-sm text-gray-400"></span>
+          <input type="text" id="search-input" placeholder="Search links..." class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+        </div>
+      </div>
+      <div id="links-list" class="space-y-3"></div>
+      <div id="pagination" class="flex items-center justify-center gap-3 mt-5"></div>
+    </div>
+  </main>
+
+  <!-- Detail Modal -->
+  <div id="detail-modal" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
+      <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+        <h3 id="modal-title" class="text-lg font-semibold text-gray-800">Link Details</h3>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">&times;</button>
+      </div>
+      <div id="modal-body" class="p-5"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/api';
+
+    // State
+    let currentPage = 0;
+    const LIMIT = 10;
+    let linksCache = [];
+
+    // --- API helpers ---
+    async function api(path, opts = {}) {
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
+        ...opts,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    // --- Verdict Banner ---
+    function showVerdict(msg, type = 'success') {
+      const banner = document.getElementById('verdict-banner');
+      const colors = { success: 'bg-green-50 border-green-200 text-green-800', error: 'bg-red-50 border-red-200 text-red-800', info: 'bg-blue-50 border-blue-200 text-blue-800' };
+      banner.className = `verdict-banner p-3 rounded-lg border ${colors[type] || colors.info}`;
+      banner.textContent = msg;
+      banner.classList.remove('hidden');
+      setTimeout(() => banner.classList.add('hidden'), 4000);
+    }
+
+    // --- Skeletons ---
+    function renderSkeletons(count = 3) {
+      const el = document.getElementById('links-list');
+      el.innerHTML = Array.from({ length: count }, () =>
+        `<div class="bg-white rounded-xl border border-gray-200 p-4"><div class="skeleton h-5 w-3/4 mb-2"></div><div class="skeleton h-4 w-1/2 mb-2"></div><div class="skeleton h-4 w-1/3"></div></div>`
+      ).join('');
+    }
+
+    // --- Create Link ---
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('create-btn');
+      btn.disabled = true; btn.textContent = 'Creating...';
+      try {
+        const title = document.getElementById('title').value.trim();
+        const url = document.getElementById('url').value.trim();
+        const description = document.getElementById('description').value.trim() || null;
+        const link = await api('/links', { method: 'POST', body: JSON.stringify({ title, url, description }) });
+        showVerdict(`Link "${link.title}" created!`, 'success');
+        document.getElementById('create-form').reset();
+        currentPage = 0;
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Create Link';
+      }
+    });
+
+    // --- Record Click ---
+    async function recordClick(id) {
+      try {
+        const result = await api(`/links/${id}/click`, { method: 'POST' });
+        showVerdict('Click recorded!', 'info');
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    // --- Record Settlement ---
+    async function recordSettlement(id) {
+      const amount = prompt('Enter settlement amount:');
+      if (!amount) return;
+      const num = parseFloat(amount);
+      if (isNaN(num) || num <= 0) { showVerdict('Amount must be > 0', 'error'); return; }
+      try {
+        const result = await api(`/links/${id}/settlement`, { method: 'POST', body: JSON.stringify({ amount: num }) });
+        showVerdict(`Settlement of $${num.toFixed(2)} recorded!`, 'success');
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    // --- Delete Link ---
+    async function deleteLink(id) {
+      if (!confirm('Delete this link?')) return;
+      try {
+        await api(`/links/${id}`, { method: 'DELETE' });
+        showVerdict('Link deleted', 'info');
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    // --- Show Details (Modal) ---
+    async function showDetails(id) {
+      try {
+        const link = await api(`/links/${id}`);
+        const analytics = await api(`/links/${id}/analytics`);
+        document.getElementById('modal-title').textContent = link.title;
+        document.getElementById('modal-body').innerHTML = `
+          <div class="space-y-3">
+            <div><span class="text-sm font-medium text-gray-500">URL:</span> <a href="${link.url}" target="_blank" class="text-brand-600 text-sm break-all hover:underline">${link.url}</a></div>
+            <div><span class="text-sm font-medium text-gray-500">Description:</span> <span class="text-sm text-gray-700">${link.description || '—'}</span></div>
+            <div><span class="text-sm font-medium text-gray-500">Created:</span> <span class="text-sm text-gray-700">${new Date(link.created_at).toLocaleString()}</span></div>
+            <hr class="my-2">
+            <h4 class="font-semibold text-gray-700">Analytics</h4>
+            <div class="grid grid-cols-3 gap-3 mt-2">
+              <div class="stat-card text-center"><p class="text-2xl font-bold text-brand-600">${analytics.total_clicks}</p><p class="text-xs text-gray-500">Clicks</p></div>
+              <div class="stat-card text-center"><p class="text-2xl font-bold text-blue-600">${(analytics.open_rate * 100).toFixed(1)}%</p><p class="text-xs text-gray-500">Open Rate</p></div>
+              <div class="stat-card text-center"><p class="text-2xl font-bold text-amber-600">$${analytics.average_settlement.toFixed(2)}</p><p class="text-xs text-gray-500">Avg Settlement</p></div>
+            </div>
+          </div>
+        `;
+        document.getElementById('detail-modal').classList.remove('hidden');
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('detail-modal').classList.add('hidden');
+    }
+    document.getElementById('detail-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
+    // --- Render link card ---
+    function renderLinkCard(link) {
+      return `
+        <div class="bg-white rounded-xl border border-gray-200 p-4 card-hover cursor-pointer" onclick="showDetails(${link.id})">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <h3 class="font-semibold text-gray-900 truncate">${escapeHtml(link.title)}</h3>
+              <p class="text-sm text-gray-500 truncate mt-0.5">${escapeHtml(link.url)}</p>
+              ${link.description ? `<p class="text-sm text-gray-400 mt-1 truncate">${escapeHtml(link.description)}</p>` : ''}
+              <p class="text-xs text-gray-400 mt-1">${new Date(link.created_at).toLocaleDateString()}</p>
+            </div>
+            <div class="flex flex-col items-end gap-1 shrink-0" onclick="event.stopPropagation()">
+              <button onclick="recordClick(${link.id})" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-full transition">+ Click</button>
+              <button onclick="recordSettlement(${link.id})" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 px-3 py-1 rounded-full transition">+ Settle</button>
+              <button onclick="deleteLink(${link.id})" class="text-xs text-red-400 hover:text-red-600 px-2 py-0.5">Delete</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    // --- Load Links ---
+    async function loadLinks() {
+      renderSkeletons(3);
+      try {
+        const search = document.getElementById('search-input').value.trim();
+        const params = new URLSearchParams({ limit: String(LIMIT), offset: String(currentPage * LIMIT) });
+        if (search) params.set('search', search);
+        const data = await api(`/links?${params}`);
+        linksCache = data.items || [];
+        const total = data.total || 0;
+
+        document.getElementById('total-count').textContent = `${total} total`;
+
+        if (linksCache.length === 0) {
+          document.getElementById('links-list').innerHTML = `
+            <div class="empty-state">
+              <svg class="mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+              </svg>
+              <p class="text-gray-400 font-medium">${search ? 'No links match your search' : 'No split links yet'}</p>
+              <p class="text-sm mt-1">${search ? 'Try a different search term' : 'Create your first one above'}</p>
+            </div>
+          `;
+        } else {
+          document.getElementById('links-list').innerHTML = linksCache.map(renderLinkCard).join('');
+        }
+
+        renderStats(linksCache);
+        renderPagination(total);
+      } catch (err) {
+        document.getElementById('links-list').innerHTML = `<div class="empty-state"><p class="text-red-500">Failed to load links: ${escapeHtml(err.message)}</p></div>`;
+      }
+    }
+
+    // --- Stats ---
+    function renderStats(links) {
+      const el = document.getElementById('stats-overview');
+      if (links.length === 0) { el.innerHTML = ''; return; }
+      const totalClicks = links.reduce((s, l) => s + (l.analytics?.total_clicks || 0), 0);
+      const avgSettlement = links.reduce((s, l) => s + (l.analytics?.average_settlement || 0), 0) / links.length || 0;
+      const topLink = links.reduce((best, l) => ((l.analytics?.total_clicks || 0) > (best?.analytics?.total_clicks || 0) ? l : best), links[0]);
+      el.innerHTML = `
+        <div class="stat-card"><p class="text-2xl font-bold text-brand-600">${links.length}</p><p class="text-sm text-gray-500">Active Links</p></div>
+        <div class="stat-card"><p class="text-2xl font-bold text-blue-600">${totalClicks}</p><p class="text-sm text-gray-500">Total Clicks</p></div>
+        <div class="stat-card"><p class="text-2xl font-bold text-amber-600">$${avgSettlement.toFixed(2)}</p><p class="text-sm text-gray-500">Avg Settlement</p></div>
+      `;
+    }
+
+    // --- Pagination ---
+    function renderPagination(total) {
+      const el = document.getElementById('pagination');
+      const totalPages = Math.ceil(total / LIMIT);
+      if (totalPages <= 1) { el.innerHTML = ''; return; }
+      el.innerHTML = `
+        <button onclick="goPage(${currentPage - 1})" class="px-3 py-1.5 text-sm border rounded-lg ${currentPage === 0 ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}">Prev</button>
+        <span class="text-sm text-gray-500">Page ${currentPage + 1} of ${totalPages}</span>
+        <button onclick="goPage(${currentPage + 1})" class="px-3 py-1.5 text-sm border rounded-lg ${currentPage >= totalPages - 1 ? 'text-gray-300 border-gray-200 cursor-not-allowed' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}">Next</button>
+      `;
+    }
+
+    function goPage(page) {
+      const total = parseInt(document.getElementById('total-count').textContent) || 0;
+      const totalPages = Math.ceil(total / LIMIT);
+      if (page < 0 || page >= totalPages) return;
+      currentPage = page;
+      loadLinks();
+    }
+
+    // --- Search ---
+    let searchTimer;
+    document.getElementById('search-input').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        currentPage = 0;
+        loadLinks();
+      }, 300);
+    });
+
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', () => {
+      loadLinks();
+    });
+  </script>
+</body>
+</html>
