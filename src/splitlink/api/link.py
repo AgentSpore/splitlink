@@ -3,7 +3,13 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..schemas.link import LinkAnalytics, LinkCreate, LinkList, LinkResponse
+from ..schemas.link import (
+    LinkAnalytics,
+    LinkCreate,
+    LinkList,
+    LinkResponse,
+    SettlementCreate,
+)
 from ..services import link_service
 
 router = APIRouter()
@@ -73,6 +79,40 @@ async def delete_link(link_id: int):
     deleted = await link_service.delete_link(link_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Link not found")
+
+
+@router.post("/{link_id}/click", status_code=200)
+async def record_click(link_id: int):
+    """Record a click for a link and return the updated analytics."""
+    updated = await link_service.update_link_clicks(link_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Link not found")
+    result = await link_service.get_link(link_id)
+    analytics = result["analytics"] if result else {}
+    return LinkAnalytics(
+        id=link_id,
+        title=result["title"],
+        total_clicks=analytics["total_clicks"],
+        open_rate=analytics["open_rate"],
+        average_settlement=analytics["average_settlement"],
+    )
+
+
+@router.post("/{link_id}/settlement", status_code=200)
+async def record_settlement(link_id: int, body: SettlementCreate):
+    """Record a settlement amount for a link and return updated analytics."""
+    updated = await link_service.update_link_settlement(link_id, body.amount)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Link not found")
+    result = await link_service.get_link(link_id)
+    analytics = result["analytics"] if result else {}
+    return LinkAnalytics(
+        id=link_id,
+        title=result["title"],
+        total_clicks=analytics["total_clicks"],
+        open_rate=analytics["open_rate"],
+        average_settlement=analytics["average_settlement"],
+    )
 
 
 @router.get("/{link_id}/analytics", response_model=LinkAnalytics)

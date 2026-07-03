@@ -87,7 +87,6 @@ class TestCreateLink:
             "/api/links",
             json={"title": "B", "url": "https://example.com/dup"},
         )
-        # No unique constraint — should succeed
         assert resp.status_code == 201
 
 
@@ -144,13 +143,85 @@ class TestDeleteLink:
         lid = create.json()["id"]
         resp = client.delete(f"/api/links/{lid}")
         assert resp.status_code == 204
-
-        # Verify gone
         resp = client.get(f"/api/links/{lid}")
         assert resp.status_code == 404
 
     def test_delete_missing(self):
         resp = client.delete("/api/links/99999")
+        assert resp.status_code == 404
+
+
+class TestClick:
+    def test_record_click_increments(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Click Test", "url": "https://example.com/click"},
+        )
+        lid = create.json()["id"]
+        resp = client.post(f"/api/links/{lid}/click")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_clicks"] == 1
+
+    def test_record_click_multiple(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Multi Click", "url": "https://example.com/mclick"},
+        )
+        lid = create.json()["id"]
+        for _ in range(5):
+            client.post(f"/api/links/{lid}/click")
+        resp = client.get(f"/api/links/{lid}/analytics")
+        assert resp.json()["total_clicks"] == 5
+
+    def test_record_click_nonexistent(self):
+        resp = client.post("/api/links/99999/click")
+        assert resp.status_code == 404
+
+
+class TestSettlement:
+    def test_record_settlement(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Settlement Test", "url": "https://example.com/settle"},
+        )
+        lid = create.json()["id"]
+        resp = client.post(
+            f"/api/links/{lid}/settlement", json={"amount": 100.0}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["average_settlement"] == 100.0
+
+    def test_record_settlement_multiple(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Multi Settle", "url": "https://example.com/msettle"},
+        )
+        lid = create.json()["id"]
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 50.0})
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 150.0})
+        resp = client.get(f"/api/links/{lid}/analytics")
+        data = resp.json()
+        # (50 + 150) / 2 = 100
+        assert data["average_settlement"] == 100.0
+        assert data["total_clicks"] == 2
+
+    def test_record_settlement_negative_amount(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Neg", "url": "https://example.com/neg"},
+        )
+        lid = create.json()["id"]
+        resp = client.post(
+            f"/api/links/{lid}/settlement", json={"amount": -10}
+        )
+        assert resp.status_code == 422
+
+    def test_record_settlement_nonexistent(self):
+        resp = client.post(
+            "/api/links/99999/settlement", json={"amount": 50.0}
+        )
         assert resp.status_code == 404
 
 
@@ -171,3 +242,17 @@ class TestAnalytics:
     def test_analytics_nonexistent_link(self):
         resp = client.get("/api/links/99999/analytics")
         assert resp.status_code == 404
+
+    def test_click_and_settlement_together(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Combined", "url": "https://example.com/combo"},
+        )
+        lid = create.json()["id"]
+        client.post(f"/api/links/{lid}/click")
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 200.0})
+        client.post(f"/api/links/{lid}/click")
+        resp = client.get(f"/api/links/{lid}/analytics")
+        data = resp.json()
+        assert data["total_clicks"] == 3  # 1 click + 1 settlement(also +1 click) + 1 click
+        assert data["average_settlement"] > 0
