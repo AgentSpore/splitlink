@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from splitlink.main import app
-from splitlink.core.db import init_db, get_db
+from splitlink.core.db import init_db, get_db, seed_demo_data
 
 import aiosqlite
 
@@ -50,6 +50,44 @@ def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_seed_demo_data():
+    """Verify seed_demo_data inserts demo links when table is empty."""
+    async with aiosqlite.connect(TEST_DB) as db:
+        async def _override():
+            yield db
+        app.dependency_overrides[get_db] = _override
+
+        await init_db()
+        await seed_demo_data()
+
+        cursor = await db.execute("SELECT COUNT(*) FROM links")
+        count = (await cursor.fetchone())[0]
+        assert count == 5, f"Expected 5 demo links, got {count}"
+
+        cursor = await db.execute("SELECT title FROM links ORDER BY created_at ASC")
+        rows = await cursor.fetchall()
+        titles = [r[0] for r in rows]
+        assert "Trip to Tokyo" in titles
+        assert "Team Dinner" in titles
+        assert "Beach House Rental" in titles
+
+        # Verify idempotent — second call adds nothing
+        await seed_demo_data()
+        cursor = await db.execute("SELECT COUNT(*) FROM links")
+        assert (await cursor.fetchone())[0] == 5
+
+        # Verify first link has analytics
+        cursor = await db.execute(
+            "SELECT total_clicks, settlement_count FROM link_analytics WHERE link_id = 1"
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == 12  # Trip to Tokyo has 12 clicks
+
+        app.dependency_overrides.clear()
 
 
 class TestCreateLink:

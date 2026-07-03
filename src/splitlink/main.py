@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from .core.config import get_settings
-from .core.db import init_db
+from .core.db import init_db, seed_demo_data
 from .api import link
 
 app = FastAPI(title="SplitLink", version="0.1.0")
@@ -26,10 +26,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database and seed demo data on startup."""
     logger.info("Initializing database...")
     await init_db()
     logger.info("Database initialized successfully")
+
+    logger.info("Seeding demo data if empty...")
+    await seed_demo_data()
+    logger.info("Demo data seeded")
 
 
 app.include_router(link.router, prefix="/api")
