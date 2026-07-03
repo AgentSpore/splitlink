@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -30,8 +31,18 @@ class LinkResponse(BaseModel):
         from_attributes = True
 
 
+class AnalyticsData(BaseModel):
+    total_clicks: int = 0
+    open_rate: float = 0.0
+    average_settlement: float = 0.0
+
+
+class LinkWithAnalyticsResponse(LinkResponse):
+    analytics: AnalyticsData
+
+
 class LinkList(BaseModel):
-    items: list[LinkResponse]
+    items: list[LinkWithAnalyticsResponse]
     total: int
 
 

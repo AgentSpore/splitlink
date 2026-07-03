@@ -4,10 +4,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from ..schemas.link import (
+    AnalyticsData,
     LinkAnalytics,
     LinkCreate,
     LinkList,
     LinkResponse,
+    LinkWithAnalyticsResponse,
     SettlementCreate,
 )
 from ..services import link_service
@@ -44,13 +46,18 @@ async def list_links(
     """List all links with pagination and analytics."""
     result = await link_service.list_links(limit=limit, offset=offset)
     items = [
-        LinkResponse(
+        LinkWithAnalyticsResponse(
             id=item["id"],
             title=item["title"],
             url=item["url"],
             description=item["description"],
             created_at=item["created_at"],
             updated_at=item["updated_at"],
+            analytics=AnalyticsData(
+                total_clicks=item["analytics"]["total_clicks"],
+                open_rate=item["analytics"]["open_rate"],
+                average_settlement=item["analytics"]["average_settlement"],
+            ),
         )
         for item in result["items"]
     ]
