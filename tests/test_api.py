@@ -29,6 +29,7 @@ async def setup_test_db():
             link_id INTEGER PRIMARY KEY,
             title TEXT,
             total_clicks INTEGER DEFAULT 0,
+            settlement_count INTEGER DEFAULT 0,
             open_rate REAL DEFAULT 0.0,
             average_settlement REAL DEFAULT 0.0,
             FOREIGN KEY (link_id) REFERENCES links(id)
@@ -191,7 +192,9 @@ class TestSettlement:
         )
         assert resp.status_code == 200
         data = resp.json()
+        # 1 settlement, 1 click total → open_rate = 1/1 = 1.0
         assert data["average_settlement"] == 100.0
+        assert data["open_rate"] == 1.0
 
     def test_record_settlement_multiple(self):
         create = client.post(
@@ -199,13 +202,15 @@ class TestSettlement:
             json={"title": "Multi Settle", "url": "https://example.com/msettle"},
         )
         lid = create.json()["id"]
+        # 1st settlement: avg = 50, clicks=1, settlements=1
         client.post(f"/api/links/{lid}/settlement", json={"amount": 50.0})
+        # 2nd: avg = (50 + 150)/2 = 100, clicks=2, settlements=2
         client.post(f"/api/links/{lid}/settlement", json={"amount": 150.0})
         resp = client.get(f"/api/links/{lid}/analytics")
         data = resp.json()
-        # (50 + 150) / 2 = 100
         assert data["average_settlement"] == 100.0
         assert data["total_clicks"] == 2
+        assert data["open_rate"] == 1.0  # 2/2 = 1.0
 
     def test_record_settlement_negative_amount(self):
         create = client.post(
@@ -223,6 +228,28 @@ class TestSettlement:
             "/api/links/99999/settlement", json={"amount": 50.0}
         )
         assert resp.status_code == 404
+
+    def test_mixed_clicks_and_settlements(self):
+        """Clicks + settlements: open_rate = settlements / total_clicks."""
+        create = client.post(
+            "/api/links",
+            json={"title": "Mixed", "url": "https://example.com/mixed"},
+        )
+        lid = create.json()["id"]
+        # 2 clicks (no settlements)
+        client.post(f"/api/links/{lid}/click")
+        client.post(f"/api/links/{lid}/click")
+        data = client.get(f"/api/links/{lid}/analytics").json()
+        assert data["total_clicks"] == 2
+        assert data["settlement_count"] == 0
+        assert data["open_rate"] == 0.0
+        # 1 settlement (also increments clicks)
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 75.0})
+        data = client.get(f"/api/links/{lid}/analytics").json()
+        assert data["total_clicks"] == 3
+        assert data["settlement_count"] == 1
+        assert data["open_rate"] == 1.0 / 3.0  # 1/3 ≈ 0.333
+        assert round(data["open_rate"], 4) == round(1.0 / 3.0, 4)
 
 
 class TestAnalytics:
@@ -242,17 +269,3 @@ class TestAnalytics:
     def test_analytics_nonexistent_link(self):
         resp = client.get("/api/links/99999/analytics")
         assert resp.status_code == 404
-
-    def test_click_and_settlement_together(self):
-        create = client.post(
-            "/api/links",
-            json={"title": "Combined", "url": "https://example.com/combo"},
-        )
-        lid = create.json()["id"]
-        client.post(f"/api/links/{lid}/click")
-        client.post(f"/api/links/{lid}/settlement", json={"amount": 200.0})
-        client.post(f"/api/links/{lid}/click")
-        resp = client.get(f"/api/links/{lid}/analytics")
-        data = resp.json()
-        assert data["total_clicks"] == 3  # 1 click + 1 settlement(also +1 click) + 1 click
-        assert data["average_settlement"] > 0

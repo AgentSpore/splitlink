@@ -5,7 +5,12 @@ from ..core.db import get_db
 
 
 def _row_to_dict(row: tuple) -> dict[str, Any]:
-    """Convert a links+analytics JOIN row to a dictionary."""
+    """Convert a links+analytics JOIN row to a dictionary.
+
+    Expects a row from the standard JOIN query (18 columns):
+      l.id, l.title, l.url, l.description, l.created_at, l.updated_at,
+      a.total_clicks, a.settlement_count, a.open_rate, a.average_settlement
+    """
     return {
         "id": row[0],
         "title": row[1],
@@ -15,10 +20,24 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "updated_at": datetime.fromisoformat(row[5]),
         "analytics": {
             "total_clicks": row[6] or 0,
-            "open_rate": row[7] or 0.0,
-            "average_settlement": row[8] or 0.0,
+            "settlement_count": row[7] or 0,
+            "open_rate": row[8] or 0.0,
+            "average_settlement": row[9] or 0.0,
         },
     }
+
+
+_JOIN_QUERY = """SELECT l.id, l.title, l.url, l.description, l.created_at, l.updated_at,
+                        a.total_clicks, a.settlement_count, a.open_rate, a.average_settlement
+                 FROM links l
+                 LEFT JOIN link_analytics a ON l.id = a.link_id"""
+
+
+def _recalc_open_rate(total_clicks: int, settlement_count: int) -> float:
+    """Compute open_rate as settlement_count / total_clicks, capped at 1.0."""
+    if total_clicks <= 0:
+        return 0.0
+    return min(settlement_count / total_clicks, 1.0)
 
 
 async def create_link(title: str, url: str, description: Optional[str] = None) -> int:
@@ -34,8 +53,8 @@ async def create_link(title: str, url: str, description: Optional[str] = None) -
         link_id = cursor.lastrowid
 
         await db.execute(
-            """INSERT INTO link_analytics (link_id, title, total_clicks, open_rate, average_settlement)
-               VALUES (?, ?, 0, 0.0, 0.0)""",
+            """INSERT INTO link_analytics (link_id, title, total_clicks, settlement_count, open_rate, average_settlement)
+               VALUES (?, ?, 0, 0, 0.0, 0.0)""",
             (link_id, title),
         )
         await db.commit()
@@ -49,11 +68,7 @@ async def get_link(link_id: int) -> Optional[dict[str, Any]]:
     """
     async with get_db() as db:
         cursor = await db.execute(
-            """SELECT l.id, l.title, l.url, l.description, l.created_at, l.updated_at,
-                      a.total_clicks, a.open_rate, a.average_settlement
-               FROM links l
-               LEFT JOIN link_analytics a ON l.id = a.link_id
-               WHERE l.id = ?""",
+            f"{_JOIN_QUERY} WHERE l.id = ?",
             (link_id,),
         )
         row = await cursor.fetchone()
@@ -67,12 +82,7 @@ async def list_links(limit: int = 10, offset: int = 0) -> dict[str, Any]:
         total = (await cursor.fetchone())[0]
 
         cursor = await db.execute(
-            """SELECT l.id, l.title, l.url, l.description, l.created_at, l.updated_at,
-                      a.total_clicks, a.open_rate, a.average_settlement
-               FROM links l
-               LEFT JOIN link_analytics a ON l.id = a.link_id
-               ORDER BY l.created_at DESC
-               LIMIT ? OFFSET ?""",
+            f"{_JOIN_QUERY} ORDER BY l.created_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
         rows = await cursor.fetchall()
@@ -81,38 +91,69 @@ async def list_links(limit: int = 10, offset: int = 0) -> dict[str, Any]:
 
 
 async def update_link_clicks(link_id: int) -> bool:
-    """Increment click count for a link.
+    """Increment click count for a link and recalculate open_rate.
 
     Returns True if the link existed and was updated.
     """
     async with get_db() as db:
         cursor = await db.execute(
-            "UPDATE link_analytics SET total_clicks = total_clicks + 1 WHERE link_id = ?",
+            "SELECT total_clicks, settlement_count FROM link_analytics WHERE link_id = ?",
             (link_id,),
         )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+
+        total_clicks, settlement_count = row
+        total_clicks += 1
+        open_rate = _recalc_open_rate(total_clicks, settlement_count)
+
+        await db.execute(
+            "UPDATE link_analytics SET total_clicks = ?, open_rate = ? WHERE link_id = ?",
+            (total_clicks, open_rate, link_id),
+        )
         await db.commit()
-        return cursor.rowcount > 0
+        return True
 
 
 async def update_link_settlement(link_id: int, amount: float) -> bool:
-    """Update average settlement amount for a link.
+    """Record a settlement amount for a link.
 
-    Uses a single atomic UPDATE to avoid read-then-write races:
-    new_avg = (old_avg * old_clicks + amount) / (old_clicks + 1)
+    Increments both total_clicks and settlement_count, updates
+    average_settlement via weighted average, and recalculates open_rate.
 
     Returns True if the link existed and was updated.
     """
     async with get_db() as db:
         cursor = await db.execute(
+            "SELECT total_clicks, settlement_count, average_settlement FROM link_analytics WHERE link_id = ?",
+            (link_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return False
+
+        total_clicks, settlement_count, avg_settlement = row
+        total_clicks += 1
+        settlement_count += 1
+
+        # Weighted average: new_avg = (old_avg * (n-1) + amount) / n
+        if settlement_count == 1:
+            new_avg = amount
+        else:
+            new_avg = (avg_settlement * (settlement_count - 1) + amount) / settlement_count
+
+        open_rate = _recalc_open_rate(total_clicks, settlement_count)
+
+        await db.execute(
             """UPDATE link_analytics
-               SET average_settlement = (average_settlement * total_clicks + ?) / (total_clicks + 1),
-                   total_clicks = total_clicks + 1,
-                   open_rate = open_rate + 0.1
+               SET total_clicks = ?, settlement_count = ?,
+                   open_rate = ?, average_settlement = ?
                WHERE link_id = ?""",
-            (amount, link_id),
+            (total_clicks, settlement_count, open_rate, new_avg, link_id),
         )
         await db.commit()
-        return cursor.rowcount > 0
+        return True
 
 
 async def delete_link(link_id: int) -> bool:
@@ -121,7 +162,6 @@ async def delete_link(link_id: int) -> bool:
     Returns True if a link was actually deleted.
     """
     async with get_db() as db:
-        # Delete analytics first (FK-safe even without explicit FK)
         await db.execute(
             "DELETE FROM link_analytics WHERE link_id = ?",
             (link_id,),

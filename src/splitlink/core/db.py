@@ -22,4 +22,15 @@ async def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS link_analytics (
+                link_id INTEGER PRIMARY KEY,
+                title TEXT,
+                total_clicks INTEGER DEFAULT 0,
+                settlement_count INTEGER DEFAULT 0,
+                open_rate REAL DEFAULT 0.0,
+                average_settlement REAL DEFAULT 0.0,
+                FOREIGN KEY (link_id) REFERENCES links(id)
+            )
+        """)
         await db.commit()
