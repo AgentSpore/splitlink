@@ -11,10 +11,23 @@ async def get_db():
         yield db
 
 
-async def init_db():
-    """Create tables if they don't exist."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
+async def _get_connection(db=None):
+    """Return a connection — either the provided one or a new one to DB_PATH."""
+    if db is not None:
+        return db
+    return await aiosqlite.connect(DB_PATH)
+
+
+async def init_db(db=None):
+    """Create tables if they don't exist.
+
+    Args:
+        db: Optional aiosqlite connection (e.g. from a test). Creates a new
+            connection to DB_PATH if not provided.
+    """
+    conn = await _get_connection(db)
+    try:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -24,7 +37,7 @@ async def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS link_analytics (
                 link_id INTEGER PRIMARY KEY,
                 title TEXT,
@@ -35,16 +48,24 @@ async def init_db():
                 FOREIGN KEY (link_id) REFERENCES links(id)
             )
         """)
-        await db.commit()
+        await conn.commit()
+    finally:
+        if db is None:
+            await conn.close()
 
 
-async def seed_demo_data():
+async def seed_demo_data(db=None):
     """Insert demo links with analytics if the links table is empty.
 
     Idempotent — only seeds when no links exist.
+
+    Args:
+        db: Optional aiosqlite connection. Creates a new connection to DB_PATH
+            if not provided.
     """
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("SELECT COUNT(*) FROM links")
+    conn = await _get_connection(db)
+    try:
+        cursor = await conn.execute("SELECT COUNT(*) FROM links")
         count = (await cursor.fetchone())[0]
         if count > 0:
             return
@@ -59,32 +80,33 @@ async def seed_demo_data():
         now = "2024-12-01 10:00:00"
 
         for idx, (title, url, description) in enumerate(demo_links):
-            # Stagger created_at to show descending order
-            cursor = await db.execute(
+            cursor = await conn.execute(
                 "INSERT INTO links (title, url, description, created_at, updated_at) VALUES (?, ?, ?, datetime(?, ?), datetime(?, ?))",
                 (title, url, description, now, f"+{idx} days", now, f"+{idx} days"),
             )
             lid = cursor.lastrowid
-            # Give the first two links some realistic analytics
             if idx == 0:
-                await db.execute(
+                await conn.execute(
                     "INSERT INTO link_analytics (link_id, title, total_clicks, settlement_count, open_rate, average_settlement) VALUES (?, ?, 12, 8, 0.667, 312.50)",
                     (lid, title),
                 )
             elif idx == 1:
-                await db.execute(
+                await conn.execute(
                     "INSERT INTO link_analytics (link_id, title, total_clicks, settlement_count, open_rate, average_settlement) VALUES (?, ?, 5, 3, 0.6, 150.00)",
                     (lid, title),
                 )
             elif idx == 2:
-                await db.execute(
+                await conn.execute(
                     "INSERT INTO link_analytics (link_id, title, total_clicks, settlement_count, open_rate, average_settlement) VALUES (?, ?, 3, 0, 0.0, 0.0)",
                     (lid, title),
                 )
             else:
-                await db.execute(
+                await conn.execute(
                     "INSERT INTO link_analytics (link_id, title, total_clicks, settlement_count, open_rate, average_settlement) VALUES (?, ?, 0, 0, 0.0, 0.0)",
                     (lid, title),
                 )
 
-        await db.commit()
+        await conn.commit()
+    finally:
+        if db is None:
+            await conn.close()

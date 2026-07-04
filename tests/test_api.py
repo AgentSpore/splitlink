@@ -14,7 +14,7 @@ client = TestClient(app)
 async def setup_test_db():
     """Create in-memory tables using app's init_db() and override get_db for each test."""
     db = await aiosqlite.connect(TEST_DB)
-    await init_db()
+    await init_db(db=db)
 
     async def _override():
         yield db
@@ -39,8 +39,8 @@ async def test_seed_demo_data():
             yield db
         app.dependency_overrides[get_db] = _override
 
-        await init_db()
-        await seed_demo_data()
+        await init_db(db=db)
+        await seed_demo_data(db=db)
 
         cursor = await db.execute("SELECT COUNT(*) FROM links")
         count = (await cursor.fetchone())[0]
@@ -54,7 +54,7 @@ async def test_seed_demo_data():
         assert "Beach House Rental" in titles
 
         # Verify idempotent — second call adds nothing
-        await seed_demo_data()
+        await seed_demo_data(db=db)
         cursor = await db.execute("SELECT COUNT(*) FROM links")
         assert (await cursor.fetchone())[0] == 5
 
