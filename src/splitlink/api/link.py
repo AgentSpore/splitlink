@@ -84,13 +84,17 @@ async def list_links(
     return LinkList(items=items, total=result["total"])
 
 
-@router.get("/{link_id}", response_model=LinkResponse)
+@router.get("/{link_id}", response_model=LinkWithAnalyticsResponse)
 async def get_link(link_id: int):
-    """Get a specific link by ID."""
+    """Get a specific link with analytics by ID.
+
+    Returns analytics inline (the service already fetches them via JOIN),
+    eliminating an extra round-trip for the frontend detail view.
+    """
     result = await link_service.get_link(link_id)
     if not result:
         raise HTTPException(status_code=404, detail="Link not found")
-    return _dict_to_link_response(result)
+    return _dict_to_link_with_analytics(result)
 
 
 @router.delete("/{link_id}", status_code=204)
