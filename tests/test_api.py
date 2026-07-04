@@ -12,30 +12,9 @@ client = TestClient(app)
 
 @pytest.fixture(scope="function", autouse=True)
 async def setup_test_db():
-    """Create in-memory tables and override get_db for each test."""
+    """Create in-memory tables using app's init_db() and override get_db for each test."""
     db = await aiosqlite.connect(TEST_DB)
-    await db.execute(
-        """CREATE TABLE IF NOT EXISTS links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            url TEXT NOT NULL,
-            description TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )"""
-    )
-    await db.execute(
-        """CREATE TABLE IF NOT EXISTS link_analytics (
-            link_id INTEGER PRIMARY KEY,
-            title TEXT,
-            total_clicks INTEGER DEFAULT 0,
-            settlement_count INTEGER DEFAULT 0,
-            open_rate REAL DEFAULT 0.0,
-            average_settlement REAL DEFAULT 0.0,
-            FOREIGN KEY (link_id) REFERENCES links(id)
-        )"""
-    )
-    await db.commit()
+    await init_db()
 
     async def _override():
         yield db

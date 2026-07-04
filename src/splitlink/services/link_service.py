@@ -7,7 +7,7 @@ from ..core.db import get_db
 def _row_to_dict(row: tuple) -> dict[str, Any]:
     """Convert a links+analytics JOIN row to a dictionary.
 
-    Expects a row from the standard JOIN query (18 columns):
+    Expects a row from the standard JOIN query (10 columns):
       l.id, l.title, l.url, l.description, l.created_at, l.updated_at,
       a.total_clicks, a.settlement_count, a.open_rate, a.average_settlement
     """
