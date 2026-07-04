@@ -40,10 +40,10 @@ def _recalc_open_rate(total_clicks: int, settlement_count: int) -> float:
     return min(settlement_count / total_clicks, 1.0)
 
 
-async def create_link(title: str, url: str, description: Optional[str] = None) -> int:
+async def create_link(title: str, url: str, description: Optional[str] = None) -> dict[str, Any]:
     """Create a new link and initialize its analytics record.
 
-    Returns the newly created link id.
+    Returns the full link dict (including analytics) from a single connection.
     """
     async with get_db() as db:
         cursor = await db.execute(
@@ -58,7 +58,14 @@ async def create_link(title: str, url: str, description: Optional[str] = None) -
             (link_id, title),
         )
         await db.commit()
-        return link_id
+
+        # Fetch the freshly created link within the same connection
+        cursor = await db.execute(
+            f"{_JOIN_QUERY} WHERE l.id = ?",
+            (link_id,),
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else {}
 
 
 async def get_link(link_id: int) -> Optional[dict[str, Any]]:
@@ -108,10 +115,11 @@ async def list_links(limit: int = 10, offset: int = 0, search: Optional[str] = N
         return {"items": [_row_to_dict(r) for r in rows], "total": total}
 
 
-async def update_link_clicks(link_id: int) -> bool:
+async def update_link_clicks(link_id: int) -> Optional[dict[str, Any]]:
     """Increment click count for a link and recalculate open_rate.
 
-    Returns True if the link existed and was updated.
+    Returns the full link dict (including updated analytics) if the link existed,
+    or None if the link was not found.
     """
     async with get_db() as db:
         cursor = await db.execute(
@@ -120,7 +128,7 @@ async def update_link_clicks(link_id: int) -> bool:
         )
         row = await cursor.fetchone()
         if not row:
-            return False
+            return None
 
         total_clicks, settlement_count = row
         total_clicks += 1
@@ -131,16 +139,23 @@ async def update_link_clicks(link_id: int) -> bool:
             (total_clicks, open_rate, link_id),
         )
         await db.commit()
-        return True
+
+        # Fetch the full link within the same connection
+        cursor = await db.execute(
+            f"{_JOIN_QUERY} WHERE l.id = ?",
+            (link_id,),
+        )
+        return _row_to_dict(await cursor.fetchone())
 
 
-async def update_link_settlement(link_id: int, amount: float) -> bool:
+async def update_link_settlement(link_id: int, amount: float) -> Optional[dict[str, Any]]:
     """Record a settlement amount for a link.
 
     Increments both total_clicks and settlement_count, updates
     average_settlement via weighted average, and recalculates open_rate.
 
-    Returns True if the link existed and was updated.
+    Returns the full link dict (including updated analytics) if the link existed,
+    or None if the link was not found.
     """
     async with get_db() as db:
         cursor = await db.execute(
@@ -149,7 +164,7 @@ async def update_link_settlement(link_id: int, amount: float) -> bool:
         )
         row = await cursor.fetchone()
         if not row:
-            return False
+            return None
 
         total_clicks, settlement_count, avg_settlement = row
         total_clicks += 1
@@ -171,7 +186,13 @@ async def update_link_settlement(link_id: int, amount: float) -> bool:
             (total_clicks, settlement_count, open_rate, new_avg, link_id),
         )
         await db.commit()
-        return True
+
+        # Fetch the full link within the same connection
+        cursor = await db.execute(
+            f"{_JOIN_QUERY} WHERE l.id = ?",
+            (link_id,),
+        )
+        return _row_to_dict(await cursor.fetchone())
 
 
 async def delete_link(link_id: int) -> bool:

@@ -17,25 +17,59 @@ from ..services import link_service
 router = APIRouter()
 
 
+def _dict_to_link_response(data: dict) -> LinkResponse:
+    """Convert a service dict to a LinkResponse, including analytics if present."""
+    return LinkResponse(
+        id=data["id"],
+        title=data["title"],
+        url=data["url"],
+        description=data["description"],
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+    )
+
+
+def _dict_to_link_analytics(data: dict) -> LinkAnalytics:
+    """Convert a service dict to a LinkAnalytics response."""
+    analytics = data.get("analytics", {})
+    return LinkAnalytics(
+        id=data["id"],
+        title=data["title"],
+        total_clicks=analytics["total_clicks"],
+        open_rate=analytics["open_rate"],
+        average_settlement=analytics["average_settlement"],
+    )
+
+
+def _dict_to_link_with_analytics(data: dict) -> LinkWithAnalyticsResponse:
+    """Convert a service dict to a LinkWithAnalyticsResponse."""
+    analytics = data.get("analytics", {})
+    return LinkWithAnalyticsResponse(
+        id=data["id"],
+        title=data["title"],
+        url=data["url"],
+        description=data["description"],
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+        analytics=AnalyticsData(
+            total_clicks=analytics["total_clicks"],
+            open_rate=analytics["open_rate"],
+            average_settlement=analytics["average_settlement"],
+        ),
+    )
+
+
 @router.post("", response_model=LinkResponse, status_code=201)
 async def create_link(link: LinkCreate):
     """Create a new link record."""
-    link_id = await link_service.create_link(
+    result = await link_service.create_link(
         title=link.title,
         url=link.url,
         description=link.description,
     )
-    result = await link_service.get_link(link_id)
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to retrieve created link")
-    return LinkResponse(
-        id=result["id"],
-        title=result["title"],
-        url=result["url"],
-        description=result["description"],
-        created_at=result["created_at"],
-        updated_at=result["updated_at"],
-    )
+        raise HTTPException(status_code=500, detail="Failed to create link")
+    return _dict_to_link_response(result)
 
 
 @router.get("", response_model=LinkList)
@@ -46,22 +80,7 @@ async def list_links(
 ):
     """List all links with pagination, analytics, and optional search."""
     result = await link_service.list_links(limit=limit, offset=offset, search=search)
-    items = [
-        LinkWithAnalyticsResponse(
-            id=item["id"],
-            title=item["title"],
-            url=item["url"],
-            description=item["description"],
-            created_at=item["created_at"],
-            updated_at=item["updated_at"],
-            analytics=AnalyticsData(
-                total_clicks=item["analytics"]["total_clicks"],
-                open_rate=item["analytics"]["open_rate"],
-                average_settlement=item["analytics"]["average_settlement"],
-            ),
-        )
-        for item in result["items"]
-    ]
+    items = [_dict_to_link_with_analytics(item) for item in result["items"]]
     return LinkList(items=items, total=result["total"])
 
 
@@ -71,14 +90,7 @@ async def get_link(link_id: int):
     result = await link_service.get_link(link_id)
     if not result:
         raise HTTPException(status_code=404, detail="Link not found")
-    return LinkResponse(
-        id=result["id"],
-        title=result["title"],
-        url=result["url"],
-        description=result["description"],
-        created_at=result["created_at"],
-        updated_at=result["updated_at"],
-    )
+    return _dict_to_link_response(result)
 
 
 @router.delete("/{link_id}", status_code=204)
@@ -92,35 +104,19 @@ async def delete_link(link_id: int):
 @router.post("/{link_id}/click", status_code=200)
 async def record_click(link_id: int):
     """Record a click for a link and return the updated analytics."""
-    updated = await link_service.update_link_clicks(link_id)
-    if not updated:
+    result = await link_service.update_link_clicks(link_id)
+    if not result:
         raise HTTPException(status_code=404, detail="Link not found")
-    result = await link_service.get_link(link_id)
-    analytics = result["analytics"] if result else {}
-    return LinkAnalytics(
-        id=link_id,
-        title=result["title"],
-        total_clicks=analytics["total_clicks"],
-        open_rate=analytics["open_rate"],
-        average_settlement=analytics["average_settlement"],
-    )
+    return _dict_to_link_analytics(result)
 
 
 @router.post("/{link_id}/settlement", status_code=200)
 async def record_settlement(link_id: int, body: SettlementCreate):
     """Record a settlement amount for a link and return updated analytics."""
-    updated = await link_service.update_link_settlement(link_id, body.amount)
-    if not updated:
+    result = await link_service.update_link_settlement(link_id, body.amount)
+    if not result:
         raise HTTPException(status_code=404, detail="Link not found")
-    result = await link_service.get_link(link_id)
-    analytics = result["analytics"] if result else {}
-    return LinkAnalytics(
-        id=link_id,
-        title=result["title"],
-        total_clicks=analytics["total_clicks"],
-        open_rate=analytics["open_rate"],
-        average_settlement=analytics["average_settlement"],
-    )
+    return _dict_to_link_analytics(result)
 
 
 @router.get("/{link_id}/analytics", response_model=LinkAnalytics)
