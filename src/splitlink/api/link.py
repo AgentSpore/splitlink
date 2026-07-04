@@ -36,6 +36,7 @@ def _dict_to_link_analytics(data: dict) -> LinkAnalytics:
         id=data["id"],
         title=data["title"],
         total_clicks=analytics["total_clicks"],
+        settlement_count=analytics["settlement_count"],
         open_rate=analytics["open_rate"],
         average_settlement=analytics["average_settlement"],
     )
@@ -53,6 +54,7 @@ def _dict_to_link_with_analytics(data: dict) -> LinkWithAnalyticsResponse:
         updated_at=data["updated_at"],
         analytics=AnalyticsData(
             total_clicks=analytics["total_clicks"],
+            settlement_count=analytics["settlement_count"],
             open_rate=analytics["open_rate"],
             average_settlement=analytics["average_settlement"],
         ),
@@ -134,6 +136,7 @@ async def get_link_analytics(link_id: int):
         id=link_id,
         title=result["title"],
         total_clicks=analytics["total_clicks"],
+        settlement_count=analytics["settlement_count"],
         open_rate=analytics["open_rate"],
         average_settlement=analytics["average_settlement"],
     )
