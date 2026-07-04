@@ -2,24 +2,25 @@ import pytest
 from fastapi.testclient import TestClient
 
 from splitlink.main import app
-from splitlink.core.db import DB_PATH
 
 client = TestClient(app)
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
 async def setup_test_db():
     """Ensure a clean in-memory database before each test."""
-    import aiosqlite
     import os
-    # Point DB_PATH to an in-memory database
+    # Set env BEFORE importing db module so Settings picks it up
     os.environ["DB_PATH"] = ":memory:"
-    # Re-import the db module to pick up the new DB_PATH
+    # Force re-import to pick up the new env var
     import importlib
+    import splitlink.core.config as cfg_mod
     import splitlink.core.db as db_mod
+    importlib.reload(cfg_mod)
     importlib.reload(db_mod)
-    from splitlink.core.db import init_db, seed_demo_data
+    from splitlink.core.db import init_db
     await init_db()
     # Do NOT seed demo data for tests — each test controls its own state
 

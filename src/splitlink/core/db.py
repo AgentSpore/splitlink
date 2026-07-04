@@ -2,7 +2,10 @@ import os
 
 import aiosqlite
 
-DB_PATH = os.environ.get("DB_PATH", "./splitlink.db")
+from .config import get_settings
+
+# DB path sourced from Settings (env var DB_PATH, .env, or default)
+DB_PATH = get_settings().db_path
 
 
 async def get_db():
