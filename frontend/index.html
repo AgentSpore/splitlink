@@ -76,7 +76,7 @@
   <!-- Detail modal -->
   <div id="detail-modal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 relative">
-      <button onclick="closeModal()" class="absolute top-3 right-3 text-gray-400 hover:text-gray-600">&times;</button>
+      <button onclick="closeModal()" class="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition-colors text-2xl leading-none">&times;</button>
       <h3 id="modal-title" class="text-xl font-bold text-gray-900 mb-3"></h3>
       <div id="modal-body"></div>
     </div>
@@ -166,12 +166,13 @@
       }
     }
 
-    // --- Delete Link ---
+    // --- Delete Link (closes modal after deletion) ---
     async function deleteLink(id) {
       if (!confirm('Delete this link?')) return;
       try {
         await api(`/links/${id}`, { method: 'DELETE' });
         showVerdict('Link deleted', 'info');
+        closeModal();
         await loadLinks();
       } catch (err) {
         showVerdict(err.message, 'error');
