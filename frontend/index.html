@@ -193,8 +193,9 @@
             <div><span class="text-sm font-medium text-gray-500">Created:</span> <span class="text-sm text-gray-700">${new Date(link.created_at).toLocaleString()}</span></div>
             <hr class="my-2">
             <h4 class="font-semibold text-gray-700">Analytics</h4>
-            <div class="grid grid-cols-3 gap-3 mt-2">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
               <div class="stat-card text-center"><p class="text-2xl font-bold text-brand-600">${a.total_clicks}</p><p class="text-xs text-gray-500">Clicks</p></div>
+              <div class="stat-card text-center"><p class="text-2xl font-bold text-purple-600">${a.settlement_count}</p><p class="text-xs text-gray-500">Settlements</p></div>
               <div class="stat-card text-center"><p class="text-2xl font-bold text-blue-600">${(a.open_rate * 100).toFixed(1)}%</p><p class="text-xs text-gray-500">Open Rate</p></div>
               <div class="stat-card text-center"><p class="text-2xl font-bold text-amber-600">$${a.average_settlement.toFixed(2)}</p><p class="text-xs text-gray-500">Avg Settlement</p></div>
             </div>
@@ -280,9 +281,10 @@
     function renderStats(links) {
       const el = document.getElementById('stats-overview');
       const totalClicks = links.reduce((s, l) => s + (l.analytics?.total_clicks || 0), 0);
+      const totalSettlements = links.reduce((s, l) => s + (l.analytics?.settlement_count || 0), 0);
       const avgSettlement = links.reduce((s, l) => s + (l.analytics?.average_settlement || 0), 0) / links.length || 0;
       const topLink = links.reduce((best, l) => ((l.analytics?.total_clicks || 0) > (best?.analytics?.total_clicks || 0) ? l : best), links[0] || {});
-      el.textContent = `${links.length} links · ${totalClicks} total clicks · avg $${avgSettlement.toFixed(2)}${topLink.title ? ` · top: ${escapeHtml(topLink.title)}` : ''}`;
+      el.textContent = `${links.length} links · ${totalClicks} clicks · ${totalSettlements} settled · avg $${avgSettlement.toFixed(2)}${topLink.title ? ` · top: ${escapeHtml(topLink.title)}` : ''}`;
     }
 
     // --- Pagination ---

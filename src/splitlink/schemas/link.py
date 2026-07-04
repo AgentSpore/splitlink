@@ -33,6 +33,7 @@ class LinkResponse(BaseModel):
 
 class AnalyticsData(BaseModel):
     total_clicks: int = 0
+    settlement_count: int = 0
     open_rate: float = 0.0
     average_settlement: float = 0.0
 
@@ -50,6 +51,7 @@ class LinkAnalytics(BaseModel):
     id: int
     title: str
     total_clicks: int
+    settlement_count: int = 0
     open_rate: float
     average_settlement: float
 

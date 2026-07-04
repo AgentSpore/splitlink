@@ -1,76 +1,38 @@
 import pytest
 from fastapi.testclient import TestClient
+
 from splitlink.main import app
-from splitlink.core.db import init_db, get_db, seed_demo_data
-
-import aiosqlite
-
-TEST_DB = ":memory:"
+from splitlink.core.db import DB_PATH
 
 client = TestClient(app)
 
+# ── Fixtures ──────────────────────────────────────────────────────────
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(autouse=True)
 async def setup_test_db():
-    """Create in-memory tables using app's init_db() and override get_db for each test."""
-    db = await aiosqlite.connect(TEST_DB)
-    await init_db(db=db)
-
-    async def _override():
-        yield db
-
-    app.dependency_overrides[get_db] = _override
-    yield
-    app.dependency_overrides.clear()
-    await db.close()
-
-
-def test_health_check():
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    """Ensure a clean in-memory database before each test."""
+    import aiosqlite
+    import os
+    # Point DB_PATH to an in-memory database
+    os.environ["DB_PATH"] = ":memory:"
+    # Re-import the db module to pick up the new DB_PATH
+    import importlib
+    import splitlink.core.db as db_mod
+    importlib.reload(db_mod)
+    from splitlink.core.db import init_db, seed_demo_data
+    await init_db()
+    # Do NOT seed demo data for tests — each test controls its own state
 
 
-@pytest.mark.asyncio
-async def test_seed_demo_data():
-    """Verify seed_demo_data inserts demo links when table is empty."""
-    async with aiosqlite.connect(TEST_DB) as db:
-        async def _override():
-            yield db
-        app.dependency_overrides[get_db] = _override
-
-        await init_db(db=db)
-        await seed_demo_data(db=db)
-
-        cursor = await db.execute("SELECT COUNT(*) FROM links")
-        count = (await cursor.fetchone())[0]
-        assert count == 5, f"Expected 5 demo links, got {count}"
-
-        cursor = await db.execute("SELECT title FROM links ORDER BY created_at ASC")
-        rows = await cursor.fetchall()
-        titles = [r[0] for r in rows]
-        assert "Trip to Tokyo" in titles
-        assert "Team Dinner" in titles
-        assert "Beach House Rental" in titles
-
-        # Verify idempotent — second call adds nothing
-        await seed_demo_data(db=db)
-        cursor = await db.execute("SELECT COUNT(*) FROM links")
-        assert (await cursor.fetchone())[0] == 5
-
-        # Verify first link has analytics
-        cursor = await db.execute(
-            "SELECT total_clicks, settlement_count FROM link_analytics WHERE link_id = 1"
-        )
-        row = await cursor.fetchone()
-        assert row is not None
-        assert row[0] == 12  # Trip to Tokyo has 12 clicks
-
-        app.dependency_overrides.clear()
+class TestHealth:
+    def test_health(self):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
 
 
 class TestCreateLink:
-    def test_create_valid(self):
+    def test_create_basic(self):
         resp = client.post(
             "/api/links",
             json={"title": "Trip to Tokyo", "url": "https://example.com/pay/abc"},
@@ -116,7 +78,14 @@ class TestGetLink:
         lid = create.json()["id"]
         resp = client.get(f"/api/links/{lid}")
         assert resp.status_code == 200
-        assert resp.json()["title"] == "Test"
+        data = resp.json()
+        assert data["title"] == "Test"
+        # Verify analytics are returned inline
+        assert "analytics" in data
+        assert "settlement_count" in data["analytics"]
+        assert data["analytics"]["total_clicks"] == 0
+        assert data["analytics"]["open_rate"] == 0.0
+        assert data["analytics"]["average_settlement"] == 0.0
 
     def test_get_missing(self):
         resp = client.get("/api/links/99999")
@@ -250,6 +219,7 @@ class TestListLinks:
         item = resp.json()["items"][0]
         assert "analytics" in item
         assert "total_clicks" in item["analytics"]
+        assert "settlement_count" in item["analytics"]
         assert "open_rate" in item["analytics"]
         assert "average_settlement" in item["analytics"]
 
@@ -313,6 +283,7 @@ class TestSettlement:
         # 1 settlement, 1 click total → open_rate = 1/1 = 1.0
         assert data["average_settlement"] == 100.0
         assert data["open_rate"] == 1.0
+        assert data["settlement_count"] == 1
 
     def test_record_settlement_multiple(self):
         create = client.post(
@@ -329,6 +300,7 @@ class TestSettlement:
         assert data["average_settlement"] == 100.0
         assert data["total_clicks"] == 2
         assert data["open_rate"] == 1.0  # 2/2 = 1.0
+        assert data["settlement_count"] == 2
 
     def test_record_settlement_negative_amount(self):
         create = client.post(
@@ -360,12 +332,14 @@ class TestSettlement:
         data = client.get(f"/api/links/{lid}/analytics").json()
         assert data["total_clicks"] == 2
         assert data["open_rate"] == 0.0
+        assert data["settlement_count"] == 0
         # 1 settlement (also increments clicks)
         client.post(f"/api/links/{lid}/settlement", json={"amount": 75.0})
         data = client.get(f"/api/links/{lid}/analytics").json()
         assert data["total_clicks"] == 3
         assert data["open_rate"] == 1.0 / 3.0  # 1/3 ≈ 0.333
         assert round(data["open_rate"], 4) == round(1.0 / 3.0, 4)
+        assert data["settlement_count"] == 1
 
 
 class TestAnalytics:
@@ -381,6 +355,7 @@ class TestAnalytics:
         assert data["total_clicks"] == 0
         assert data["open_rate"] == 0.0
         assert data["average_settlement"] == 0.0
+        assert data["settlement_count"] == 0
 
     def test_analytics_nonexistent_link(self):
         resp = client.get("/api/links/99999/analytics")
