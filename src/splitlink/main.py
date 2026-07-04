@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,7 +28,13 @@ app.add_middleware(
 # ── Global exception handler ──────────────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Return a clean JSON error for any unhandled exception."""
+    """Return a clean JSON error for any unhandled exception.
+
+    Re-raises HTTPException so FastAPI handles it with the proper status code
+    and detail message.
+    """
+    if isinstance(exc, HTTPException):
+        raise exc
     logger.opt(exception=exc).error("Unhandled exception on {method} {path}", method=request.method, path=request.url.path)
     return JSONResponse(
         status_code=500,
