@@ -10,6 +10,7 @@ from ..schemas.link import (
     LinkCreate,
     LinkList,
     LinkResponse,
+    LinkUpdate,
     LinkWithAnalyticsResponse,
     SettlementCreate,
 )
@@ -100,6 +101,25 @@ async def get_link(link_id: int):
     Raises 404 if the link does not exist.
     """
     link = await link_service.get_link(link_id)
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    return _dict_to_link_with_analytics(link)
+
+
+@router.patch("/{link_id}", response_model=LinkWithAnalyticsResponse)
+async def patch_link(link_id: int, body: LinkUpdate):
+    """Update one or more fields of an existing link.
+
+    Only the provided fields are updated (title, url, description).
+    Returns the updated link with full analytics.
+    Raises 404 if the link does not exist.
+    """
+    link = await link_service.update_link(
+        link_id=link_id,
+        title=body.title,
+        url=body.url,
+        description=body.description,
+    )
     if not link:
         raise HTTPException(status_code=404, detail="Link not found")
     return _dict_to_link_with_analytics(link)

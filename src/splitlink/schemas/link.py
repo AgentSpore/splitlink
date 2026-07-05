@@ -19,6 +19,22 @@ class LinkCreate(BaseModel):
         }
 
 
+class LinkUpdate(BaseModel):
+    """Request body for updating an existing link. All fields are optional."""
+
+    title: Optional[str] = Field(None, min_length=1, max_length=500)
+    url: Optional[str] = Field(None, max_length=2000)
+    description: Optional[str] = Field(None, max_length=5000)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "title": "Updated trip title",
+                "description": "Updated description for the split",
+            }
+        }
+
+
 class LinkResponse(BaseModel):
     id: int
     title: str

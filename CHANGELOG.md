@@ -5,6 +5,16 @@ All notable changes to the SplitLink project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-07-05
+
+### Added
+
+- PATCH `/api/links/{link_id}` endpoint for partial updates to title, url, and/or description
+- `LinkUpdate` Pydantic schema with all optional fields
+- `update_link` service function that builds dynamic SQL SET clauses
+- Tests for update endpoint: title-only, url-only, description-only, clear description,
+  all fields, empty body, missing link, analytics preservation, timestamp update
+
 ## [1.1.0] - 2025-07-02
 
 ### Added

@@ -115,6 +115,69 @@ async def list_links(limit: int = 10, offset: int = 0, search: Optional[str] = N
         return {"items": [_row_to_dict(r) for r in rows], "total": total}
 
 
+async def update_link(
+    link_id: int,
+    title: Optional[str] = None,
+    url: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Update one or more fields of an existing link.
+
+    Only the provided fields are updated. The ``updated_at`` timestamp is
+    always refreshed.
+
+    Returns the full link dict (including analytics) if the link existed,
+    or None if the link was not found.
+    """
+    async with get_db() as db:
+        # Verify the link exists
+        cursor = await db.execute("SELECT id FROM links WHERE id = ?", (link_id,))
+        if not await cursor.fetchone():
+            return None
+
+        # Build SET clause dynamically from provided fields
+        set_clauses = []
+        params: list[Any] = []
+        if title is not None:
+            set_clauses.append("title = ?")
+            params.append(title)
+        if url is not None:
+            set_clauses.append("url = ?")
+            params.append(url)
+        if description is not None:
+            set_clauses.append("description = ?")
+            params.append(description)
+
+        if not set_clauses:
+            # Nothing to update — just return the current link
+            cursor = await db.execute(
+                f"{_JOIN_QUERY} WHERE l.id = ?",
+                (link_id,),
+            )
+            row = await cursor.fetchone()
+            return _row_to_dict(row) if row else None
+
+        # Always refresh updated_at
+        now = datetime.utcnow().isoformat()
+        set_clauses.append("updated_at = ?")
+        params.append(now)
+
+        params.append(link_id)
+        await db.execute(
+            f"UPDATE links SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
+        )
+        await db.commit()
+
+        # Fetch the updated link
+        cursor = await db.execute(
+            f"{_JOIN_QUERY} WHERE l.id = ?",
+            (link_id,),
+        )
+        row = await cursor.fetchone()
+        return _row_to_dict(row) if row else None
+
+
 async def update_link_clicks(link_id: int) -> Optional[dict[str, Any]]:
     """Increment click count for a link and recalculate open_rate.
 

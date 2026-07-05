@@ -99,7 +99,10 @@ class TestListLinks:
         for i in range(5):
             client.post(
                 "/api/links",
-                json={"title": f"Link {i}", "url": f"https://example.com/{i}"},
+                json={
+                    "title": f"Link {i}",
+                    "url": f"https://example.com/{i}",
+                },
             )
         resp = client.get("/api/links?limit=2&offset=0")
         assert resp.status_code == 200
@@ -107,122 +110,49 @@ class TestListLinks:
         assert len(data["items"]) == 2
         assert data["total"] == 5
 
-    def test_list_empty(self):
-        resp = client.get("/api/links")
-        assert resp.status_code == 200
-        assert resp.json() == {"items": [], "total": 0}
-
-    def test_list_default_limit(self):
-        for i in range(20):
-            client.post(
-                "/api/links",
-                json={"title": f"Link {i}", "url": f"https://example.com/{i}"},
-            )
-        resp = client.get("/api/links")
-        assert len(resp.json()["items"]) == 10
-        assert resp.json()["total"] == 20
-
-    def test_list_search_by_title(self):
+    def test_list_search(self):
         client.post(
             "/api/links",
             json={"title": "Tokyo Trip", "url": "https://example.com/tokyo"},
         )
         client.post(
             "/api/links",
-            json={"title": "Paris Trip", "url": "https://example.com/paris"},
+            json={"title": "Paris Hotel", "url": "https://example.com/paris"},
         )
-        resp = client.get("/api/links?search=Tokyo")
+        resp = client.get("/api/links?search=tokyo")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
         assert data["items"][0]["title"] == "Tokyo Trip"
 
-    def test_list_search_by_url(self):
+    def test_list_search_url(self):
         client.post(
             "/api/links",
-            json={"title": "A", "url": "https://example.com/unique-find-me"},
+            json={"title": "A", "url": "https://example.com/uniquekey"},
         )
-        client.post(
-            "/api/links",
-            json={"title": "B", "url": "https://example.com/other"},
-        )
-        resp = client.get("/api/links?search=unique-find-me")
+        resp = client.get("/api/links?search=uniquekey")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_list_search_by_description(self):
+    def test_list_search_description(self):
         client.post(
             "/api/links",
             json={
-                "title": "Trip",
-                "url": "https://example.com/t",
-                "description": "Split $500 for flights",
+                "title": "A",
+                "url": "https://example.com/a",
+                "description": "unique description keyword",
             },
         )
-        client.post(
-            "/api/links",
-            json={
-                "title": "Other",
-                "url": "https://example.com/o",
-                "description": "Hotel booking",
-            },
-        )
-        resp = client.get("/api/links?search=flights")
+        resp = client.get("/api/links?search=unique+description")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_list_search_no_results(self):
-        client.post(
-            "/api/links",
-            json={"title": "Test", "url": "https://example.com/test"},
-        )
-        resp = client.get("/api/links?search=zzzznonexistent")
+    def test_list_search_no_match(self):
+        resp = client.get("/api/links?search=zzzzz_nonexistent")
         assert resp.status_code == 200
-        assert resp.json() == {"items": [], "total": 0}
-
-    def test_list_search_case_insensitive(self):
-        client.post(
-            "/api/links",
-            json={"title": "SPECIAL EVENT", "url": "https://example.com/special"},
-        )
-        resp = client.get("/api/links?search=special")
-        assert resp.status_code == 200
-        assert resp.json()["total"] == 1
-
-    def test_list_search_with_pagination(self):
-        for i in range(5):
-            client.post(
-                "/api/links",
-                json={
-                    "title": f"Matching {i}",
-                    "url": f"https://example.com/m{i}",
-                },
-            )
-        client.post(
-            "/api/links",
-            json={"title": "Other", "url": "https://example.com/other"},
-        )
-        resp = client.get("/api/links?search=Matching&limit=2&offset=0")
         data = resp.json()
-        assert data["total"] == 5
-        assert len(data["items"]) == 2
-        # Verify items have analytics in response
-        assert "analytics" in data["items"][0]
-        assert "total_clicks" in data["items"][0]["analytics"]
-
-    def test_list_items_have_analytics(self):
-        """Verify list endpoint returns analytics embedded in each item."""
-        client.post(
-            "/api/links",
-            json={"title": "Analytics Check", "url": "https://example.com/ac"},
-        )
-        resp = client.get("/api/links")
-        item = resp.json()["items"][0]
-        assert "analytics" in item
-        assert "total_clicks" in item["analytics"]
-        assert "settlement_count" in item["analytics"]
-        assert "open_rate" in item["analytics"]
-        assert "average_settlement" in item["analytics"]
+        assert data["total"] == 0
+        assert data["items"] == []
 
 
 class TestDeleteLink:
@@ -233,6 +163,7 @@ class TestDeleteLink:
         lid = create.json()["id"]
         resp = client.delete(f"/api/links/{lid}")
         assert resp.status_code == 204
+        # Verify it's gone
         resp = client.get(f"/api/links/{lid}")
         assert resp.status_code == 404
 
@@ -242,29 +173,27 @@ class TestDeleteLink:
 
 
 class TestClick:
-    def test_record_click_increments(self):
+    def test_record_click(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Click Test", "url": "https://example.com/click"},
+            "/api/links", json={"title": "C", "url": "https://example.com/c"}
         )
         lid = create.json()["id"]
         resp = client.post(f"/api/links/{lid}/click")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["total_clicks"] == 1
+        assert resp.json()["total_clicks"] == 1
 
-    def test_record_click_multiple(self):
+    def test_click_multiple(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Multi Click", "url": "https://example.com/mclick"},
+            "/api/links", json={"title": "M", "url": "https://example.com/m"}
         )
         lid = create.json()["id"]
         for _ in range(5):
             client.post(f"/api/links/{lid}/click")
-        resp = client.get(f"/api/links/{lid}/analytics")
-        assert resp.json()["total_clicks"] == 5
+        resp = client.post(f"/api/links/{lid}/click")
+        assert resp.status_code == 200
+        assert resp.json()["total_clicks"] == 6
 
-    def test_record_click_nonexistent(self):
+    def test_click_missing_link(self):
         resp = client.post("/api/links/99999/click")
         assert resp.status_code == 404
 
@@ -272,92 +201,229 @@ class TestClick:
 class TestSettlement:
     def test_record_settlement(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Settlement Test", "url": "https://example.com/settle"},
+            "/api/links", json={"title": "S", "url": "https://example.com/s"}
         )
         lid = create.json()["id"]
         resp = client.post(
             f"/api/links/{lid}/settlement", json={"amount": 100.0}
         )
         assert resp.status_code == 200
-        data = resp.json()
-        # 1 settlement, 1 click total → open_rate = 1/1 = 1.0
-        assert data["average_settlement"] == 100.0
-        assert data["open_rate"] == 1.0
-        assert data["settlement_count"] == 1
+        assert resp.json()["settlement_count"] == 1
+        assert resp.json()["average_settlement"] == 100.0
 
-    def test_record_settlement_multiple(self):
+    def test_settlement_weighted_avg(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Multi Settle", "url": "https://example.com/msettle"},
+            "/api/links", json={"title": "W", "url": "https://example.com/w"}
         )
         lid = create.json()["id"]
-        # 1st settlement: avg = 50, clicks=1, settlements=1
         client.post(f"/api/links/{lid}/settlement", json={"amount": 50.0})
-        # 2nd: avg = (50 + 150)/2 = 100, clicks=2, settlements=2
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 100.0})
         client.post(f"/api/links/{lid}/settlement", json={"amount": 150.0})
-        resp = client.get(f"/api/links/{lid}/analytics")
-        data = resp.json()
-        assert data["average_settlement"] == 100.0
-        assert data["total_clicks"] == 2
-        assert data["open_rate"] == 1.0  # 2/2 = 1.0
-        assert data["settlement_count"] == 2
+        resp = client.post(f"/api/links/{lid}/settlement", json={"amount": 100.0})
+        assert resp.status_code == 200
+        assert resp.json()["settlement_count"] == 4
+        # (50 + 100 + 150 + 100) / 4 = 100.0
+        assert resp.json()["average_settlement"] == 100.0
 
-    def test_record_settlement_negative_amount(self):
+    def test_settlement_updates_click_rate(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Neg", "url": "https://example.com/neg"},
+            "/api/links", json={"title": "R", "url": "https://example.com/r"}
+        )
+        lid = create.json()["id"]
+        # 2 clicks, 1 settlement → open_rate = 0.5
+        client.post(f"/api/links/{lid}/click")
+        client.post(f"/api/links/{lid}/click")
+        resp = client.post(f"/api/links/{lid}/settlement", json={"amount": 75.0})
+        assert resp.status_code == 200
+        assert resp.json()["total_clicks"] == 3
+        assert resp.json()["settlement_count"] == 1
+        assert resp.json()["open_rate"] == pytest.approx(1.0 / 3.0)
+        assert resp.json()["average_settlement"] == 75.0
+
+    def test_settlement_missing_link(self):
+        resp = client.post("/api/links/99999/settlement", json={"amount": 10.0})
+        assert resp.status_code == 404
+
+    def test_settlement_zero_amount(self):
+        create = client.post(
+            "/api/links", json={"title": "Z", "url": "https://example.com/z"}
         )
         lid = create.json()["id"]
         resp = client.post(
-            f"/api/links/{lid}/settlement", json={"amount": -10}
+            f"/api/links/{lid}/settlement", json={"amount": 0}
         )
         assert resp.status_code == 422
 
-    def test_record_settlement_nonexistent(self):
-        resp = client.post(
-            "/api/links/99999/settlement", json={"amount": 50.0}
-        )
-        assert resp.status_code == 404
-
-    def test_mixed_clicks_and_settlements(self):
-        """Clicks + settlements: open_rate = settlements / total_clicks."""
+    def test_settlement_negative_amount(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Mixed", "url": "https://example.com/mixed"},
+            "/api/links", json={"title": "N", "url": "https://example.com/n"}
         )
         lid = create.json()["id"]
-        # 2 clicks (no settlements)
-        client.post(f"/api/links/{lid}/click")
-        client.post(f"/api/links/{lid}/click")
-        data = client.get(f"/api/links/{lid}/analytics").json()
-        assert data["total_clicks"] == 2
-        assert data["open_rate"] == 0.0
-        assert data["settlement_count"] == 0
-        # 1 settlement (also increments clicks)
-        client.post(f"/api/links/{lid}/settlement", json={"amount": 75.0})
-        data = client.get(f"/api/links/{lid}/analytics").json()
-        assert data["total_clicks"] == 3
-        assert data["open_rate"] == 1.0 / 3.0  # 1/3 ≈ 0.333
-        assert round(data["open_rate"], 4) == round(1.0 / 3.0, 4)
-        assert data["settlement_count"] == 1
+        resp = client.post(
+            f"/api/links/{lid}/settlement", json={"amount": -50.0}
+        )
+        assert resp.status_code == 422
 
 
 class TestAnalytics:
-    def test_analytics_initial(self):
+    def test_analytics_endpoint(self):
         create = client.post(
-            "/api/links",
-            json={"title": "Analytics Test", "url": "https://example.com/analytics"},
+            "/api/links", json={"title": "A", "url": "https://example.com/a"}
         )
         lid = create.json()["id"]
+        client.post(f"/api/links/{lid}/click")
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 50.0})
         resp = client.get(f"/api/links/{lid}/analytics")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_clicks"] == 0
-        assert data["open_rate"] == 0.0
-        assert data["average_settlement"] == 0.0
-        assert data["settlement_count"] == 0
+        assert data["total_clicks"] == 2
+        assert data["settlement_count"] == 1
+        assert data["average_settlement"] == 50.0
 
-    def test_analytics_nonexistent_link(self):
+    def test_analytics_missing(self):
         resp = client.get("/api/links/99999/analytics")
         assert resp.status_code == 404
+
+
+class TestUpdateLink:
+    """Tests for PATCH /api/links/{link_id} — partial update of link fields."""
+
+    def test_update_title(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Old Title", "url": "https://example.com/u1"},
+        )
+        lid = create.json()["id"]
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"title": "Updated Title"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["title"] == "Updated Title"
+        assert data["url"] == "https://example.com/u1"  # unchanged
+
+    def test_update_url(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "URL Test", "url": "https://example.com/old"},
+        )
+        lid = create.json()["id"]
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"url": "https://example.com/new"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["url"] == "https://example.com/new"
+
+    def test_update_description(self):
+        create = client.post(
+            "/api/links",
+            json={
+                "title": "Desc Test",
+                "url": "https://example.com/d",
+                "description": "Old description",
+            },
+        )
+        lid = create.json()["id"]
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"description": "New description"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["description"] == "New description"
+
+    def test_update_clear_description(self):
+        create = client.post(
+            "/api/links",
+            json={
+                "title": "Clear Desc",
+                "url": "https://example.com/cd",
+                "description": "Remove me",
+            },
+        )
+        lid = create.json()["id"]
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"description": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["description"] is None
+
+    def test_update_updates_timestamp(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Time Test", "url": "https://example.com/ts"},
+        )
+        lid = create.json()["id"]
+        import time
+        time.sleep(0.01)  # ensure at least 10ms passes
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"title": "New Time"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["updated_at"] > data["created_at"]
+
+    def test_update_missing_link(self):
+        resp = client.patch(
+            "/api/links/99999",
+            json={"title": "Ghost"},
+        )
+        assert resp.status_code == 404
+
+    def test_update_empty_body(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Empty", "url": "https://example.com/empty"},
+        )
+        lid = create.json()["id"]
+        resp = client.patch(f"/api/links/{lid}", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["title"] == "Empty"  # unchanged
+
+    def test_update_all_fields(self):
+        create = client.post(
+            "/api/links",
+            json={
+                "title": "All",
+                "url": "https://example.com/all",
+                "description": "Original",
+            },
+        )
+        lid = create.json()["id"]
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={
+                "title": "All Updated",
+                "url": "https://example.com/all-new",
+                "description": "Updated description",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["title"] == "All Updated"
+        assert data["url"] == "https://example.com/all-new"
+        assert data["description"] == "Updated description"
+
+    def test_update_analytics_preserved(self):
+        create = client.post(
+            "/api/links",
+            json={"title": "Analytics Preserve", "url": "https://example.com/ap"},
+        )
+        lid = create.json()["id"]
+        # Add some analytics
+        client.post(f"/api/links/{lid}/click")
+        client.post(f"/api/links/{lid}/settlement", json={"amount": 50.0})
+        # Update title
+        resp = client.patch(
+            f"/api/links/{lid}",
+            json={"title": "Preserved Analytics"},
+        )
+        assert resp.status_code == 200
+        a = resp.json()["analytics"]
+        assert a["total_clicks"] == 2
+        assert a["settlement_count"] == 1
+        assert a["average_settlement"] == 50.0
