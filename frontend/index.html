@@ -20,6 +20,13 @@
       }
     }
   </script>
+  <style>
+    .card-hover { transition: box-shadow 0.2s, transform 0.2s; }
+    .card-hover:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+    .stat-card { background: #f9fafb; border-radius: 0.75rem; padding: 0.75rem 0.5rem; }
+    .skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 0.5rem; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
   <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -52,28 +59,32 @@
           <label for="description" class="block text-sm font-medium text-gray-600 mb-1">Description</label>
           <textarea id="description" rows="2" placeholder="What's this split for?" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"></textarea>
         </div>
-        <button id="create-btn" type="submit" class="w-full sm:w-auto bg-brand-600 hover:bg-brand-700 text-white font-medium py-2 px-6 rounded-lg transition-colors text-sm">Create Link</button>
+        <button id="create-btn" type="submit" class="w-full sm:w-auto bg-brand-600 hover:bg-brand-700 text-white py-2 px-6 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">Create Link</button>
       </form>
     </section>
 
-    <!-- Search + controls -->
-    <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-      <div class="relative w-full sm:w-72">
-        <input id="search-input" type="text" placeholder="Search links…" class="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+    <!-- Search & Stats -->
+    <section class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+      <div class="relative flex-1">
+        <input id="search-input" type="search" placeholder="Search links..." class="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
         <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
       </div>
-      <span id="stats-overview" class="text-xs text-gray-400"></span>
-    </div>
+      <div id="stats-bar" class="flex gap-4 text-sm text-gray-500 flex-wrap">
+        <span><strong id="total-count" class="text-gray-800">0</strong> links</span>
+        <span><strong id="stat-clicks" class="text-gray-800">0</strong> clicks</span>
+        <span><strong id="stat-settlements" class="text-gray-800">0</strong> settlements</span>
+      </div>
+    </section>
 
     <!-- Links list -->
-    <section id="links-section">
+    <section>
       <div id="links-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      <!-- Pagination -->
-      <div id="pagination" class="mt-4 flex items-center justify-center gap-2"></div>
+      <div id="pagination" class="flex items-center justify-center gap-2 mt-4"></div>
     </section>
+
   </main>
 
-  <!-- Detail modal -->
+  <!-- Detail / Edit modal -->
   <div id="detail-modal" class="fixed inset-0 bg-black/40 z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 relative">
       <button onclick="closeModal()" class="absolute top-3 right-3 text-gray-400 hover:text-gray-600 transition-colors text-2xl leading-none">&times;</button>
@@ -87,39 +98,36 @@
     const LIMIT = 10;
     let currentPage = 0;
     let searchTimer = null;
+    let editingLinkId = null;
 
     // --- API helpers ---
     async function api(path, opts = {}) {
       const res = await fetch(`${API_BASE}${path}`, {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...opts.headers },
         ...opts,
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(err.detail || `HTTP ${res.status}`);
+        const detail = (await res.json().catch(() => ({}))).detail || res.statusText;
+        throw new Error(detail);
       }
-      return res.status === 204 ? null : res.json();
+      if (res.status === 204) return null;
+      return res.json();
     }
 
     // --- Verdict banner ---
     function showVerdict(msg, type = 'success') {
-      const banner = document.getElementById('verdict-banner');
-      const colors = { success: 'bg-green-50 border-green-200 text-green-800', error: 'bg-red-50 border-red-200 text-red-800', info: 'bg-blue-50 border-blue-200 text-blue-800' };
-      banner.className = `border rounded-lg px-4 py-3 text-sm font-medium transition-all ${colors[type] || colors.info}`;
-      banner.textContent = msg;
-      banner.classList.remove('hidden');
-      setTimeout(() => banner.classList.add('hidden'), 4000);
+      const el = document.getElementById('verdict-banner');
+      if (type === 'success') {
+        el.className = 'bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm font-medium';
+      } else {
+        el.className = 'bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm font-medium';
+      }
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 4000);
     }
 
-    // --- Skeleton loading ---
-    function renderSkeletons(count = 3) {
-      const el = document.getElementById('links-list');
-      el.innerHTML = Array.from({ length: count }, () =>
-        `<div class="bg-white rounded-xl border border-gray-200 p-4 animate-pulse space-y-2"><div class="h-4 bg-gray-200 rounded w-3/4"></div><div class="h-3 bg-gray-100 rounded w-1/2"></div><div class="h-3 bg-gray-100 rounded w-2/3"></div></div>`
-      ).join('');
-    }
-
-    // --- Create Link ---
+    // --- Create link ---
     document.getElementById('create-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('create-btn');
@@ -128,8 +136,11 @@
         const title = document.getElementById('title').value.trim();
         const url = document.getElementById('url').value.trim();
         const description = document.getElementById('description').value.trim() || null;
-        const link = await api('/links', { method: 'POST', body: JSON.stringify({ title, url, description }) });
-        showVerdict(`Link "${link.title}" created!`, 'success');
+        const link = await api('/links', {
+          method: 'POST',
+          body: JSON.stringify({ title, url, description }),
+        });
+        showVerdict(`Created "${link.title}"`);
         document.getElementById('create-form').reset();
         currentPage = 0;
         await loadLinks();
@@ -140,73 +151,92 @@
       }
     });
 
-    // --- Record Click ---
-    async function recordClick(id) {
-      try {
-        const result = await api(`/links/${id}/click`, { method: 'POST' });
-        showVerdict('Click recorded!', 'info');
-        await loadLinks();
-      } catch (err) {
-        showVerdict(err.message, 'error');
-      }
-    }
-
-    // --- Record Settlement ---
-    async function recordSettlement(id) {
-      const amount = prompt('Enter settlement amount:');
-      if (!amount) return;
-      const num = parseFloat(amount);
-      if (isNaN(num) || num <= 0) { showVerdict('Amount must be > 0', 'error'); return; }
-      try {
-        const result = await api(`/links/${id}/settlement`, { method: 'POST', body: JSON.stringify({ amount: num }) });
-        showVerdict(`Settlement of $${num.toFixed(2)} recorded!`, 'success');
-        await loadLinks();
-      } catch (err) {
-        showVerdict(err.message, 'error');
-      }
-    }
-
-    // --- Delete Link (closes modal after deletion) ---
-    async function deleteLink(id) {
-      if (!confirm('Delete this link?')) return;
-      try {
-        await api(`/links/${id}`, { method: 'DELETE' });
-        showVerdict('Link deleted', 'info');
-        closeModal();
-        await loadLinks();
-      } catch (err) {
-        showVerdict(err.message, 'error');
-      }
-    }
-
-    // --- Show Details (Modal) ---
+    // --- Show detail modal ---
     async function showDetails(id) {
+      editingLinkId = id;
       try {
         const link = await api(`/links/${id}`);
-        // link includes analytics inline — no second call needed
-        const a = link.analytics;
-        document.getElementById('modal-title').textContent = link.title;
+        renderDetailView(link);
+        document.getElementById('detail-modal').classList.remove('hidden');
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    function renderDetailView(link) {
+      const a = link.analytics;
+      document.getElementById('modal-title').textContent = link.title;
+      document.getElementById('modal-body').innerHTML = `
+        <div class="space-y-3">
+          <div><span class="text-sm font-medium text-gray-500">URL:</span> <a href="${link.url}" target="_blank" class="text-brand-600 text-sm break-all hover:underline">${link.url}</a></div>
+          <div><span class="text-sm font-medium text-gray-500">Description:</span> <span class="text-sm text-gray-700">${link.description || '—'}</span></div>
+          <div><span class="text-sm font-medium text-gray-500">Created:</span> <span class="text-sm text-gray-700">${new Date(link.created_at).toLocaleString()}</span></div>
+          <hr class="my-2">
+          <h4 class="font-semibold text-gray-700">Analytics</h4>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+            <div class="stat-card text-center"><p class="text-2xl font-bold text-brand-600">${a.total_clicks}</p><p class="text-xs text-gray-500">Clicks</p></div>
+            <div class="stat-card text-center"><p class="text-2xl font-bold text-purple-600">${a.settlement_count}</p><p class="text-xs text-gray-500">Settlements</p></div>
+            <div class="stat-card text-center"><p class="text-2xl font-bold text-blue-600">${(a.open_rate * 100).toFixed(1)}%</p><p class="text-xs text-gray-500">Open Rate</p></div>
+            <div class="stat-card text-center"><p class="text-2xl font-bold text-amber-600">$${a.average_settlement.toFixed(2)}</p><p class="text-xs text-gray-500">Avg Settlement</p></div>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <button onclick="editLink(${link.id})" class="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors">Edit</button>
+            <button onclick="recordClick(${link.id})" class="flex-1 bg-brand-100 hover:bg-brand-200 text-brand-700 py-2 rounded-lg text-sm font-medium transition-colors">+ Click</button>
+            <button onclick="recordSettlement(${link.id})" class="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-700 py-2 rounded-lg text-sm font-medium transition-colors">+ Settlement</button>
+            <button onclick="deleteLink(${link.id})" class="flex-1 bg-red-100 hover:bg-red-200 text-red-700 py-2 rounded-lg text-sm font-medium transition-colors">Delete</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // --- Edit link (inline in modal) ---
+    async function editLink(id) {
+      try {
+        const link = await api(`/links/${id}`);
+        document.getElementById('modal-title').textContent = 'Edit Link';
         document.getElementById('modal-body').innerHTML = `
           <div class="space-y-3">
-            <div><span class="text-sm font-medium text-gray-500">URL:</span> <a href="${link.url}" target="_blank" class="text-brand-600 text-sm break-all hover:underline">${link.url}</a></div>
-            <div><span class="text-sm font-medium text-gray-500">Description:</span> <span class="text-sm text-gray-700">${link.description || '—'}</span></div>
-            <div><span class="text-sm font-medium text-gray-500">Created:</span> <span class="text-sm text-gray-700">${new Date(link.created_at).toLocaleString()}</span></div>
-            <hr class="my-2">
-            <h4 class="font-semibold text-gray-700">Analytics</h4>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
-              <div class="stat-card text-center"><p class="text-2xl font-bold text-brand-600">${a.total_clicks}</p><p class="text-xs text-gray-500">Clicks</p></div>
-              <div class="stat-card text-center"><p class="text-2xl font-bold text-purple-600">${a.settlement_count}</p><p class="text-xs text-gray-500">Settlements</p></div>
-              <div class="stat-card text-center"><p class="text-2xl font-bold text-blue-600">${(a.open_rate * 100).toFixed(1)}%</p><p class="text-xs text-gray-500">Open Rate</p></div>
-              <div class="stat-card text-center"><p class="text-2xl font-bold text-amber-600">$${a.average_settlement.toFixed(2)}</p><p class="text-xs text-gray-500">Avg Settlement</p></div>
+            <div>
+              <label for="edit-title" class="block text-sm font-medium text-gray-600 mb-1">Title</label>
+              <input id="edit-title" type="text" value="${escapeHtml(link.title)}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
             </div>
-            <div class="flex gap-2 mt-4">
-              <button onclick="recordClick(${link.id})" class="flex-1 bg-brand-100 hover:bg-brand-200 text-brand-700 py-2 rounded-lg text-sm font-medium transition-colors">+ Click</button>
-              <button onclick="recordSettlement(${link.id})" class="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-700 py-2 rounded-lg text-sm font-medium transition-colors">+ Settlement</button>
-              <button onclick="deleteLink(${link.id})" class="flex-1 bg-red-100 hover:bg-red-200 text-red-700 py-2 rounded-lg text-sm font-medium transition-colors">Delete</button>
+            <div>
+              <label for="edit-url" class="block text-sm font-medium text-gray-600 mb-1">URL</label>
+              <input id="edit-url" type="url" value="${escapeHtml(link.url)}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+            </div>
+            <div>
+              <label for="edit-description" class="block text-sm font-medium text-gray-600 mb-1">Description</label>
+              <textarea id="edit-description" rows="2" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">${escapeHtml(link.description || '')}</textarea>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="saveEdit(${id})" class="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-semibold transition-colors">Save Changes</button>
+              <button onclick="showDetails(${id})" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors">Cancel</button>
             </div>
           </div>
         `;
-        document.getElementById('detail-modal').classList.remove('hidden');
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+    }
+
+    async function saveEdit(id) {
+      const title = document.getElementById('edit-title').value.trim();
+      const url = document.getElementById('edit-url').value.trim();
+      const description = document.getElementById('edit-description').value.trim() || null;
+      if (!title || !url) { showVerdict('Title and URL are required', 'error'); return; }
+      try {
+        const updated = await api(`/links/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ title, url, description }),
+        });
+        showVerdict(`Updated "${updated.title}"`);
+        renderDetailView(updated);
+        await loadLinks();
       } catch (err) {
         showVerdict(err.message, 'error');
       }
@@ -219,84 +249,120 @@
       if (e.target === e.currentTarget) closeModal();
     });
 
+    // --- Record click ---
+    async function recordClick(id) {
+      try {
+        const data = await api(`/links/${id}/click`, { method: 'POST' });
+        showVerdict('Click recorded');
+        await showDetails(id);
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    // --- Record settlement ---
+    async function recordSettlement(id) {
+      const amount = prompt('Settlement amount ($):');
+      if (amount === null) return;
+      const num = parseFloat(amount);
+      if (isNaN(num) || num <= 0) { showVerdict('Amount must be a positive number', 'error'); return; }
+      try {
+        const data = await api(`/links/${id}/settlement`, { method: 'POST', body: JSON.stringify({ amount: num }) });
+        showVerdict(`Settlement of $${num.toFixed(2)} recorded`);
+        await showDetails(id);
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
+    // --- Delete link ---
+    async function deleteLink(id) {
+      if (!confirm('Delete this link? This cannot be undone.')) return;
+      try {
+        await api(`/links/${id}`, { method: 'DELETE' });
+        showVerdict('Link deleted');
+        closeModal();
+        await loadLinks();
+      } catch (err) {
+        showVerdict(err.message, 'error');
+      }
+    }
+
     // --- Render link card ---
     function renderLinkCard(link) {
       const a = link.analytics || {};
       return `
         <div class="bg-white rounded-xl border border-gray-200 p-4 card-hover cursor-pointer" onclick="showDetails(${link.id})">
-          <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
               <h3 class="font-semibold text-gray-900 truncate">${escapeHtml(link.title)}</h3>
-              <p class="text-sm text-gray-500 truncate mt-0.5">${escapeHtml(link.url)}</p>
-              ${link.description ? `<p class="text-sm text-gray-400 mt-1 truncate">${escapeHtml(link.description)}</p>` : ''}
-              <p class="text-xs text-gray-400 mt-1">${new Date(link.created_at).toLocaleDateString()}</p>
-            </div>
-            <div class="flex flex-col items-end gap-1 shrink-0">
-              <span class="text-xs font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">${a.total_clicks || 0} clicks</span>
-              <span class="text-xs text-gray-400">${((a.open_rate || 0) * 100).toFixed(0)}% open</span>
+              <p class="text-xs text-gray-400 truncate mt-0.5">${escapeHtml(link.url)}</p>
+              ${link.description ? `<p class="text-sm text-gray-500 mt-1 line-clamp-2">${escapeHtml(link.description)}</p>` : ''}
             </div>
           </div>
-          <div class="flex gap-2 mt-3">
+          <div class="flex items-center gap-3 mt-3 text-xs text-gray-500">
+            <span>${a.total_clicks || 0} clicks</span>
+            <span>${a.settlement_count || 0} settlements</span>
+            <span>${a.average_settlement ? '$' + a.average_settlement.toFixed(2) : '$0.00'}</span>
+          </div>
+          <div class="mt-2 flex gap-1">
             <button onclick="event.stopPropagation(); showDetails(${link.id})" class="text-xs bg-brand-50 hover:bg-brand-100 text-brand-700 py-1 px-3 rounded-lg font-medium transition-colors">Details</button>
-            <button onclick="event.stopPropagation(); recordClick(${link.id})" class="text-xs bg-brand-50 hover:bg-brand-100 text-brand-700 py-1 px-3 rounded-lg font-medium transition-colors">+ Click</button>
-            <button onclick="event.stopPropagation(); recordSettlement(${link.id})" class="text-xs bg-amber-50 hover:bg-amber-100 text-amber-700 py-1 px-3 rounded-lg font-medium transition-colors">+ Settle</button>
           </div>
         </div>
       `;
     }
 
-    function escapeHtml(text) {
-      const d = document.createElement('div');
-      d.textContent = text;
-      return d.innerHTML;
-    }
-
     // --- Load links ---
     async function loadLinks() {
-      renderSkeletons();
+      const el = document.getElementById('links-list');
+      el.innerHTML = Array(4).fill('<div class="skeleton h-28"></div>').join('');
       try {
-        const search = document.getElementById('search-input').value.trim();
         const params = new URLSearchParams({ limit: String(LIMIT), offset: String(currentPage * LIMIT) });
-        if (search) params.set('search', search);
+        const searchVal = document.getElementById('search-input').value.trim();
+        if (searchVal) params.set('search', searchVal);
         const data = await api(`/links?${params}`);
         const total = data.total || 0;
         const links = data.items || [];
 
         if (links.length === 0) {
-          document.getElementById('links-list').innerHTML = `<div class="col-span-full text-center py-12 text-gray-400"><p class="text-lg">No links yet</p><p class="text-sm mt-1">Create your first split link above</p></div>`;
+          el.innerHTML = `<div class="col-span-full text-center py-12 text-gray-400"><p class="text-lg">No links yet</p><p class="text-sm mt-1">Create your first split link above!</p></div>`;
         } else {
-          document.getElementById('links-list').innerHTML = links.map(renderLinkCard).join('');
+          el.innerHTML = links.map(renderLinkCard).join('');
         }
 
         document.getElementById('total-count').textContent = String(total);
         renderStats(links);
         renderPagination(total);
       } catch (err) {
-        document.getElementById('links-list').innerHTML = `<div class="col-span-full text-center py-12 text-red-400"><p>Failed to load links</p><p class="text-xs mt-1">${err.message}</p></div>`;
+        el.innerHTML = `<div class="col-span-full text-center py-12 text-red-400"><p>Failed to load links</p><p class="text-sm mt-1">${escapeHtml(err.message)}</p></div>`;
         showVerdict(err.message, 'error');
       }
     }
 
     // --- Stats ---
     function renderStats(links) {
-      const el = document.getElementById('stats-overview');
-      const totalClicks = links.reduce((s, l) => s + (l.analytics?.total_clicks || 0), 0);
-      const totalSettlements = links.reduce((s, l) => s + (l.analytics?.settlement_count || 0), 0);
-      const avgSettlement = links.reduce((s, l) => s + (l.analytics?.average_settlement || 0), 0) / links.length || 0;
-      const topLink = links.reduce((best, l) => ((l.analytics?.total_clicks || 0) > (best?.analytics?.total_clicks || 0) ? l : best), links[0] || {});
-      el.textContent = `${links.length} links · ${totalClicks} clicks · ${totalSettlements} settled · avg $${avgSettlement.toFixed(2)}${topLink.title ? ` · top: ${escapeHtml(topLink.title)}` : ''}`;
+      let clicks = 0, settlements = 0;
+      links.forEach(l => {
+        const a = l.analytics || {};
+        clicks += a.total_clicks || 0;
+        settlements += a.settlement_count || 0;
+      });
+      document.getElementById('stat-clicks').textContent = String(clicks);
+      document.getElementById('stat-settlements').textContent = String(settlements);
     }
 
     // --- Pagination ---
     function renderPagination(total) {
+      const pages = Math.ceil(total / LIMIT);
       const el = document.getElementById('pagination');
-      const totalPages = Math.ceil(total / LIMIT);
-      if (totalPages <= 1) { el.innerHTML = ''; return; }
-      let html = '';
-      for (let i = 0; i < totalPages; i++) {
-        html += `<button onclick="goPage(${i})" class="px-3 py-1 text-sm rounded-lg border ${i === currentPage ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}">${i + 1}</button>`;
-      }
-      el.innerHTML = html;
+      if (pages <= 1) { el.innerHTML = ''; return; }
+      const btns = [];
+      if (currentPage > 0) btns.push(`<button onclick="goPage(${currentPage - 1})" class="px-3 py-1 rounded-lg text-sm border border-gray-300 hover:bg-gray-50">&larr; Prev</button>`);
+      btns.push(`<span class="text-sm text-gray-500 px-2">Page ${currentPage + 1} of ${pages}</span>`);
+      if (currentPage < pages - 1) btns.push(`<button onclick="goPage(${currentPage + 1})" class="px-3 py-1 rounded-lg text-sm border border-gray-300 hover:bg-gray-50">Next &rarr;</button>`);
+      el.innerHTML = btns.join(' ');
     }
 
     function goPage(page) {
@@ -304,7 +370,7 @@
       loadLinks();
     }
 
-    // --- Search with debounce ---
+    // --- Search ---
     document.getElementById('search-input').addEventListener('input', () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(() => {
@@ -314,9 +380,7 @@
     });
 
     // --- Init ---
-    document.addEventListener('DOMContentLoaded', () => {
-      loadLinks();
-    });
+    loadLinks();
   </script>
 </body>
 </html>
