@@ -5,6 +5,12 @@ All notable changes to the SplitLink project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-07-05
+
+### Changed
+
+- Refactored `api/link.py`: extracted `_extract_analytics()` helper to deduplicate `AnalyticsData` construction (3 occurrences → 1), removed unused `_dict_to_link_response()` converter, removed unused `datetime` and `JSONResponse` imports, extracted `_not_found()` helper to DRY up 404 checks (5 occurrences → 1)
+
 ## [1.4.0] - 2025-07-05
 
 ### Changed
