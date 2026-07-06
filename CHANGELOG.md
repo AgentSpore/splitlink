@@ -5,6 +5,12 @@ All notable changes to the SplitLink project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-07-05
+
+### Changed
+
+- Refactored `link_service.py`: extracted `_fetch_link()` and `_fetch_analytics()` helpers to eliminate 7 duplicated JOIN-query + `_row_to_dict` blocks, reducing code duplication and improving maintainability
+
 ## [1.3.0] - 2025-07-05
 
 ### Added

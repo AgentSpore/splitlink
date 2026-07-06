@@ -40,6 +40,22 @@ def _recalc_open_rate(total_clicks: int, settlement_count: int) -> float:
     return min(settlement_count / total_clicks, 1.0)
 
 
+async def _fetch_link(db, link_id: int) -> Optional[dict[str, Any]]:
+    """Fetch a single link with analytics by ID using an existing connection."""
+    cursor = await db.execute(f"{_JOIN_QUERY} WHERE l.id = ?", (link_id,))
+    row = await cursor.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def _fetch_analytics(db, link_id: int) -> Optional[tuple]:
+    """Fetch raw analytics columns for a link using an existing connection."""
+    cursor = await db.execute(
+        "SELECT total_clicks, settlement_count, average_settlement FROM link_analytics WHERE link_id = ?",
+        (link_id,),
+    )
+    return await cursor.fetchone()
+
+
 async def create_link(title: str, url: str, description: Optional[str] = None) -> dict[str, Any]:
     """Create a new link and initialize its analytics record.
 
@@ -59,13 +75,8 @@ async def create_link(title: str, url: str, description: Optional[str] = None) -
         )
         await db.commit()
 
-        # Fetch the freshly created link within the same connection
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} WHERE l.id = ?",
-            (link_id,),
-        )
-        row = await cursor.fetchone()
-        return _row_to_dict(row) if row else {}
+        result = await _fetch_link(db, link_id)
+        return result or {}
 
 
 async def get_link(link_id: int) -> Optional[dict[str, Any]]:
@@ -74,12 +85,7 @@ async def get_link(link_id: int) -> Optional[dict[str, Any]]:
     Returns None if the link does not exist.
     """
     async with get_db() as db:
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} WHERE l.id = ?",
-            (link_id,),
-        )
-        row = await cursor.fetchone()
-        return _row_to_dict(row) if row else None
+        return await _fetch_link(db, link_id)
 
 
 async def list_links(limit: int = 10, offset: int = 0, search: Optional[str] = None) -> dict[str, Any]:
@@ -111,7 +117,6 @@ async def list_links(limit: int = 10, offset: int = 0, search: Optional[str] = N
                 (limit, offset),
             )
         rows = await cursor.fetchall()
-
         return {"items": [_row_to_dict(r) for r in rows], "total": total}
 
 
@@ -149,33 +154,21 @@ async def update_link(
             params.append(description)
 
         if not set_clauses:
-            # Nothing to update — just return the current link
-            cursor = await db.execute(
-                f"{_JOIN_QUERY} WHERE l.id = ?",
-                (link_id,),
-            )
-            row = await cursor.fetchone()
-            return _row_to_dict(row) if row else None
+            return await _fetch_link(db, link_id)
 
         # Always refresh updated_at
         now = datetime.utcnow().isoformat()
         set_clauses.append("updated_at = ?")
         params.append(now)
-
         params.append(link_id)
+
         await db.execute(
             f"UPDATE links SET {', '.join(set_clauses)} WHERE id = ?",
             params,
         )
         await db.commit()
 
-        # Fetch the updated link
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} WHERE l.id = ?",
-            (link_id,),
-        )
-        row = await cursor.fetchone()
-        return _row_to_dict(row) if row else None
+        return await _fetch_link(db, link_id)
 
 
 async def update_link_clicks(link_id: int) -> Optional[dict[str, Any]]:
@@ -185,15 +178,11 @@ async def update_link_clicks(link_id: int) -> Optional[dict[str, Any]]:
     or None if the link was not found.
     """
     async with get_db() as db:
-        cursor = await db.execute(
-            "SELECT total_clicks, settlement_count FROM link_analytics WHERE link_id = ?",
-            (link_id,),
-        )
-        row = await cursor.fetchone()
+        row = await _fetch_analytics(db, link_id)
         if not row:
             return None
 
-        total_clicks, settlement_count = row
+        total_clicks, settlement_count, _ = row
         total_clicks += 1
         open_rate = _recalc_open_rate(total_clicks, settlement_count)
 
@@ -203,12 +192,7 @@ async def update_link_clicks(link_id: int) -> Optional[dict[str, Any]]:
         )
         await db.commit()
 
-        # Fetch the full link within the same connection
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} WHERE l.id = ?",
-            (link_id,),
-        )
-        return _row_to_dict(await cursor.fetchone())
+        return await _fetch_link(db, link_id)
 
 
 async def update_link_settlement(link_id: int, amount: float) -> Optional[dict[str, Any]]:
@@ -221,11 +205,7 @@ async def update_link_settlement(link_id: int, amount: float) -> Optional[dict[s
     or None if the link was not found.
     """
     async with get_db() as db:
-        cursor = await db.execute(
-            "SELECT total_clicks, settlement_count, average_settlement FROM link_analytics WHERE link_id = ?",
-            (link_id,),
-        )
-        row = await cursor.fetchone()
+        row = await _fetch_analytics(db, link_id)
         if not row:
             return None
 
@@ -234,11 +214,7 @@ async def update_link_settlement(link_id: int, amount: float) -> Optional[dict[s
         settlement_count += 1
 
         # Weighted average: new_avg = (old_avg * (n-1) + amount) / n
-        if settlement_count == 1:
-            new_avg = amount
-        else:
-            new_avg = (avg_settlement * (settlement_count - 1) + amount) / settlement_count
-
+        new_avg = amount if settlement_count == 1 else (avg_settlement * (settlement_count - 1) + amount) / settlement_count
         open_rate = _recalc_open_rate(total_clicks, settlement_count)
 
         await db.execute(
@@ -250,12 +226,7 @@ async def update_link_settlement(link_id: int, amount: float) -> Optional[dict[s
         )
         await db.commit()
 
-        # Fetch the full link within the same connection
-        cursor = await db.execute(
-            f"{_JOIN_QUERY} WHERE l.id = ?",
-            (link_id,),
-        )
-        return _row_to_dict(await cursor.fetchone())
+        return await _fetch_link(db, link_id)
 
 
 async def delete_link(link_id: int) -> bool:
@@ -264,13 +235,7 @@ async def delete_link(link_id: int) -> bool:
     Returns True if a link was actually deleted.
     """
     async with get_db() as db:
-        await db.execute(
-            "DELETE FROM link_analytics WHERE link_id = ?",
-            (link_id,),
-        )
-        cursor = await db.execute(
-            "DELETE FROM links WHERE id = ?",
-            (link_id,),
-        )
+        await db.execute("DELETE FROM link_analytics WHERE link_id = ?", (link_id,))
+        cursor = await db.execute("DELETE FROM links WHERE id = ?", (link_id,))
         await db.commit()
         return cursor.rowcount > 0
